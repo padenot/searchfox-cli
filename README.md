@@ -1,5 +1,14 @@
 # searchfox-cli
 
+[![Crates.io](https://img.shields.io/crates/v/searchfox-cli.svg)](https://crates.io/crates/searchfox-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
+[![Build Status](https://github.com/padenot/searchfox-cli/workflows/CI/badge.svg)](https://github.com/padenot/searchfox-cli/actions)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/padenot/searchfox-cli)](https://rust-reportcard.xuri.me/report/github.com/padenot/searchfox-cli)
+[![Dependencies](https://deps.rs/repo/github/padenot/searchfox-cli/status.svg)](https://deps.rs/repo/github/padenot/searchfox-cli)
+[![Downloads](https://img.shields.io/crates/d/searchfox-cli.svg)](https://crates.io/crates/searchfox-cli)
+
 A command-line interface for searching Mozilla codebases using searchfox.org,
 written by and for Claude Code.
 
