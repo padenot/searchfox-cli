@@ -1,10 +1,10 @@
 use clap::Parser;
+use log::{debug, error, warn};
 use reqwest::Url;
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use log::{debug, error, warn};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -109,7 +109,7 @@ struct Args {
 
     #[arg(
         long = "c",
-        help = "Filter results to C files only", 
+        help = "Filter results to C files only",
         long_help = "Filter results to C files only (.c, .h)"
     )]
     c_lang: bool,
@@ -238,9 +238,7 @@ async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Err
         latency.as_millis(),
         response.status()
     );
-    debug!(
-        "[PING] Note: This includes minimal server processing time, not just network latency"
-    );
+    debug!("[PING] Note: This includes minimal server processing time, not just network latency");
 
     Ok(latency)
 }
@@ -306,7 +304,7 @@ async fn find_symbol_in_search_results(
                         if !matches_language_filter(&file.path, args) {
                             continue;
                         }
-                        
+
                         debug!(
                             "Processing file: {} with {} lines",
                             file.path,
@@ -366,14 +364,15 @@ async fn find_symbol_in_search_results(
             } else {
                 query
             };
-            
+
             // Determine if this is a method/constructor search (contains ::) or class search
             let is_method_search = symbol_name.contains("::");
-            
+
             if !is_method_search {
                 // For class searches, look for class/struct definitions first
                 let class_def_key = format!("Definitions ({})", symbol_name);
-                if let Some(files_array) = categories.get(&class_def_key).and_then(|v| v.as_array()) {
+                if let Some(files_array) = categories.get(&class_def_key).and_then(|v| v.as_array())
+                {
                     for file in files_array {
                         match serde_json::from_value::<File>(file.clone()) {
                             Ok(file) => {
@@ -381,10 +380,11 @@ async fn find_symbol_in_search_results(
                                 if !matches_language_filter(&file.path, args) {
                                     continue;
                                 }
-                                
+
                                 for line in file.lines {
                                     // Check if this is a class/struct definition
-                                    if line.line.contains("class ") || line.line.contains("struct ") {
+                                    if line.line.contains("class ") || line.line.contains("struct ")
+                                    {
                                         debug!(
                                             "Found class/struct definition: {}:{} - {}",
                                             file.path,
@@ -400,7 +400,7 @@ async fn find_symbol_in_search_results(
                     }
                 }
             }
-            
+
             // Then look for other definitions and declarations
             // For method searches, prioritize "Definitions" over "Declarations"
             let search_order = if is_method_search {
@@ -408,7 +408,7 @@ async fn find_symbol_in_search_results(
             } else {
                 vec!["Declarations", "Definitions"] // For classes, declarations might also be useful
             };
-            
+
             for search_type in search_order {
                 for (category_name, category_value) in categories {
                     // Skip the class definition key we already processed for non-method searches
@@ -418,41 +418,43 @@ async fn find_symbol_in_search_results(
                             continue;
                         }
                     }
-                    
+
                     if category_name.contains(search_type)
                         && (category_name.contains(symbol_name)
-                            || category_name.to_lowercase().contains(&symbol_name.to_lowercase()))
+                            || category_name
+                                .to_lowercase()
+                                .contains(&symbol_name.to_lowercase()))
                     {
-                    if let Some(files_array) = category_value.as_array() {
-                        for file in files_array {
-                            match serde_json::from_value::<File>(file.clone()) {
-                                Ok(file) => {
-                                    // Skip files that don't match language filters
-                                    if !matches_language_filter(&file.path, args) {
+                        if let Some(files_array) = category_value.as_array() {
+                            for file in files_array {
+                                match serde_json::from_value::<File>(file.clone()) {
+                                    Ok(file) => {
+                                        // Skip files that don't match language filters
+                                        if !matches_language_filter(&file.path, args) {
+                                            continue;
+                                        }
+
+                                        for line in file.lines {
+                                            // Check if we have an upsearch symbol (this is the mangled symbol we need)
+                                            if let Some(upsearch) = &line.upsearch {
+                                                if upsearch.starts_with("symbol:_Z") {
+                                                    // Use this mangled symbol directly for a more targeted search
+                                                    return Ok(vec![(file.path.clone(), line.lno)]);
+                                                }
+                                            }
+                                            file_locations.push((file.path.clone(), line.lno));
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Skip files that don't parse correctly
                                         continue;
                                     }
-                                    
-                                    for line in file.lines {
-                                        // Check if we have an upsearch symbol (this is the mangled symbol we need)
-                                        if let Some(upsearch) = &line.upsearch {
-                                            if upsearch.starts_with("symbol:_Z") {
-                                                // Use this mangled symbol directly for a more targeted search
-                                                return Ok(vec![(file.path.clone(), line.lno)]);
-                                            }
-                                        }
-                                        file_locations.push((file.path.clone(), line.lno));
-                                    }
-                                }
-                                Err(_) => {
-                                    // Skip files that don't parse correctly
-                                    continue;
                                 }
                             }
                         }
                     }
-                    }
                 }
-                
+
                 // If we found results with this search type, stop searching
                 if !file_locations.is_empty() {
                     break;
@@ -690,8 +692,9 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
 
     // If the function declaration ends with ';', it's just a declaration
     // Exception: class/struct forward declarations like "class Foo;"
-    if start_line_content.trim_end().ends_with(';') && 
-       !(start_line_content.contains("class ") || start_line_content.contains("struct ")) {
+    if start_line_content.trim_end().ends_with(';')
+        && !(start_line_content.contains("class ") || start_line_content.contains("struct "))
+    {
         return (
             start_line,
             vec![format!(">>> {:4}: {}", start_line, start_line_content)],
@@ -787,11 +790,11 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
                     if brace_count == 0 {
                         // Found the end of the method/class
                         // For classes/structs, check if there's a semicolon after the closing brace
-                        let is_class_or_struct = lines[start_idx].contains("class ") || 
-                                                 lines[start_idx].contains("struct ");
+                        let is_class_or_struct = lines[start_idx].contains("class ")
+                            || lines[start_idx].contains("struct ");
                         if is_class_or_struct {
                             // Look for semicolon on same line or next line
-                            let remaining_on_line = &line[j+1..];
+                            let remaining_on_line = &line[j + 1..];
                             if remaining_on_line.trim().starts_with(';') {
                                 // Include the semicolon in the output
                                 return (start_line, result_lines);
@@ -837,36 +840,40 @@ fn matches_language_filter(path: &str, args: &Args) -> bool {
     }
 
     let path_lower = path.to_lowercase();
-    
+
     // Check C++ files
-    if args.cpp && (path_lower.ends_with(".cc") || 
-                    path_lower.ends_with(".cpp") || 
-                    path_lower.ends_with(".h") || 
-                    path_lower.ends_with(".hh") || 
-                    path_lower.ends_with(".hpp")) {
+    if args.cpp
+        && (path_lower.ends_with(".cc")
+            || path_lower.ends_with(".cpp")
+            || path_lower.ends_with(".h")
+            || path_lower.ends_with(".hh")
+            || path_lower.ends_with(".hpp"))
+    {
         return true;
     }
-    
+
     // Check C files
     if args.c_lang && (path_lower.ends_with(".c") || path_lower.ends_with(".h")) {
         return true;
     }
-    
+
     // Check WebIDL files
     if args.webidl && path_lower.ends_with(".webidl") {
         return true;
     }
-    
+
     // Check JavaScript files
-    if args.js && (path_lower.ends_with(".js") || 
-                   path_lower.ends_with(".mjs") || 
-                   path_lower.ends_with(".ts") || 
-                   path_lower.ends_with(".cjs") || 
-                   path_lower.ends_with(".jsx") || 
-                   path_lower.ends_with(".tsx")) {
+    if args.js
+        && (path_lower.ends_with(".js")
+            || path_lower.ends_with(".mjs")
+            || path_lower.ends_with(".ts")
+            || path_lower.ends_with(".cjs")
+            || path_lower.ends_with(".jsx")
+            || path_lower.ends_with(".tsx"))
+    {
         return true;
     }
-    
+
     false
 }
 
@@ -1265,14 +1272,18 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
         if let Some(files_array) = value.as_array() {
             for file in files_array {
                 let file: File = serde_json::from_value(file.clone())?;
-                
+
                 // Skip files that don't match language filters
                 if !matches_language_filter(&file.path, &args) {
                     continue;
                 }
-                
+
                 // If searching by path only, show the file path even if there are no line matches
-                if args.path.is_some() && args.query.is_none() && args.symbol.is_none() && args.id.is_none() {
+                if args.path.is_some()
+                    && args.query.is_none()
+                    && args.symbol.is_none()
+                    && args.id.is_none()
+                {
                     if count >= args.limit {
                         break;
                     }
@@ -1293,14 +1304,18 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
                 if let Some(files) = file_list.as_array() {
                     for file in files {
                         let file: File = serde_json::from_value(file.clone())?;
-                        
+
                         // Skip files that don't match language filters
                         if !matches_language_filter(&file.path, &args) {
                             continue;
                         }
-                        
+
                         // If searching by path only, show the file path even if there are no line matches
-                        if args.path.is_some() && args.query.is_none() && args.symbol.is_none() && args.id.is_none() {
+                        if args.path.is_some()
+                            && args.query.is_none()
+                            && args.symbol.is_none()
+                            && args.id.is_none()
+                        {
                             if count >= args.limit {
                                 break;
                             }
@@ -1350,9 +1365,15 @@ async fn main() -> anyhow::Result<()> {
         find_and_display_definition(&args.repo, symbol, args.path.as_deref(), &args).await
     } else if let Some(path) = &args.get_file {
         get_file(&args.repo, path, args.log_requests).await
-    } else if args.query.is_some() || args.symbol.is_some() || args.id.is_some() || args.path.is_some() {
+    } else if args.query.is_some()
+        || args.symbol.is_some()
+        || args.id.is_some()
+        || args.path.is_some()
+    {
         search_code(&args).await
     } else {
-        anyhow::bail!("Either --query, --symbol, --id, --get-file, --define, or --path must be provided");
+        anyhow::bail!(
+            "Either --query, --symbol, --id, --get-file, --define, or --path must be provided"
+        );
     }
 }
