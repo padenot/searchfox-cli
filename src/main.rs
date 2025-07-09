@@ -359,11 +359,7 @@ async fn find_symbol_in_search_results(
             }
         } else if let Some(categories) = value.as_object() {
             // Extract the symbol name from the query (remove "id:" prefix if present)
-            let symbol_name = if query.starts_with("id:") {
-                &query[3..]
-            } else {
-                query
-            };
+            let symbol_name = query.strip_prefix("id:").unwrap_or(query);
 
             // Determine if this is a method/constructor search (contains ::) or class search
             let is_method_search = symbol_name.contains("::");
@@ -1274,7 +1270,7 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
                 let file: File = serde_json::from_value(file.clone())?;
 
                 // Skip files that don't match language filters
-                if !matches_language_filter(&file.path, &args) {
+                if !matches_language_filter(&file.path, args) {
                     continue;
                 }
 
@@ -1306,7 +1302,7 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
                         let file: File = serde_json::from_value(file.clone())?;
 
                         // Skip files that don't match language filters
-                        if !matches_language_filter(&file.path, &args) {
+                        if !matches_language_filter(&file.path, args) {
                             continue;
                         }
 
