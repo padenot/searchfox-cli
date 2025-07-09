@@ -2,6 +2,8 @@
 name = "searchfox-cli"
 version = "0.1.0"
 edition = "2021"
+description = "CLI for https://searchfox.org"
+license = "MIT OR Apache-2.0"
 
 [[bin]]
 name = "searchfox-cli"
