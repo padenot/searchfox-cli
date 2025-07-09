@@ -7,11 +7,12 @@ written by and for Claude Code.
 
 - Search across multiple Mozilla repositories (mozilla-central, autoland, beta, release, ESR branches, comm-central)
 - Support for regular expressions and case-sensitive search
-- Filter results by file path patterns
+- Filter results by file path patterns (or search for files by path alone)
+- **Language filtering**: Filter results by programming language (C++, C, WebIDL, JavaScript)
 - Fetch and display file contents directly from GitHub
-- **Complete function extraction**: Intelligently extracts entire method/function bodies with brace matching
+- **Complete function and class extraction**: Intelligently extracts entire method/function bodies and class definitions with brace matching
 - **Symbol search**: Uses searchfox's native symbol indexing for precise symbol lookups
-- **Advanced definition finding**: Uses searchfox's structured data for reliable symbol resolution
+- **Advanced definition finding**: Uses searchfox's structured data for reliable symbol resolution, prioritizes class definitions
 - **Request logging**: Detailed HTTP request timing and performance analysis
 - Configurable result limits
 
@@ -75,9 +76,35 @@ searchfox-cli -q AudioStream -p ^dom/media
 # Search in specific file patterns
 searchfox-cli -q AudioStream -p '\.cpp$'
 
+# Use -p alone to search for files by path pattern
+searchfox-cli -p PContent.ipdl
+searchfox-cli -p AudioContext.cpp
+
 # Using advanced path syntax in query
 searchfox-cli -q 'path:dom/media AudioStream'
 searchfox-cli -q 'pathre:^dom/(media|audio) AudioStream'
+```
+
+### Language Filtering
+
+Filter search results by programming language using language-specific flags:
+
+```bash
+# Search only in C++ files (.cc, .cpp, .h, .hh, .hpp)
+searchfox-cli -q AudioContext --cpp
+searchfox-cli --define AudioContext -p dom/media --cpp
+
+# Search only in C files (.c, .h)
+searchfox-cli -q malloc --c
+
+# Search only in WebIDL files (.webidl)
+searchfox-cli -q AudioContext --webidl
+
+# Search only in JavaScript files (.js, .mjs, .ts, .cjs, .jsx, .tsx)
+searchfox-cli -q AudioContext --js
+
+# Without language filters, all file types are included
+searchfox-cli --define AudioContext -p dom/media
 ```
 
 ### Advanced Query Features
@@ -115,55 +142,60 @@ Symbol search relies on searchfox's own symbol database, which includes properly
 
 The `--define` flag provides an advanced way to find symbol definitions by:
 
-1. **Symbol Search**: Searches for the symbol using searchfox's structured data
-2. **Definition Resolution**: Locates actual definitions from search results
-3. **Context Extraction**: Fetches the source file and displays the complete method/function
+1. **Symbol Search**: Uses `id:` prefix internally for precise symbol lookups
+2. **Class/Struct Priority**: Prioritizes class and struct definitions over constructors
+3. **Definition Resolution**: Searches both "Definitions" and "Declarations" categories (for C++ classes)
+4. **Context Extraction**: Fetches the source file and displays the complete method/function/class
 
 ```bash
+# Find class definition with full body
+searchfox-cli --define AudioContext -p dom/media
+
 # Find method definition with full context
 searchfox-cli --define 'AudioContext::CreateGain'
 
+# Filter by language
+searchfox-cli --define AudioContext -p dom/media --cpp
+
 # The tool will:
-# 1. Search for the symbol in searchfox's structured data
-# 2. Locate definition entries from search results
-# 3. Fetch the source file and extract the complete method
-# 4. Display the full method/function body with context
+# 1. Search using id:AudioContext for precise matches
+# 2. Prioritize class definitions over constructor declarations
+# 3. Extract the complete class body (with brace matching)
+# 4. Display the full definition with proper highlighting
 ```
 
 This approach leverages searchfox's comprehensive symbol database for reliable definition finding.
 
 #### Example Output:
 
+**For class definitions:**
+```bash
+$ searchfox-cli --define AudioContext -p dom/media --cpp
+>>>  135: class AudioContext final : public DOMEventTargetHelper,
+     136:                            public nsIMemoryReporter,
+     137:                            public RelativeTimeline {
+     138:   AudioContext(nsPIDOMWindowInner* aParentWindow, bool aIsOffline,
+     139:                uint32_t aNumberOfChannels = 0, uint32_t aLength = 0,
+     140:                float aSampleRate = 0.0f);
+     141:   ~AudioContext();
+     142: 
+     143:  public:
+     144:   typedef uint64_t AudioContextId;
+     145: 
+     146:   NS_DECL_ISUPPORTS_INHERITED
+     147:   NS_DECL_CYCLE_COLLECTION_CLASS_INHERITED(AudioContext, DOMEventTargetHelper)
+     148:   MOZ_DEFINE_MALLOC_SIZE_OF(MallocSizeOf)
+     ...
+     335:   void RegisterNode(AudioNode* aNode);
+   ...  : (method too long, truncated)
+```
+
+**For method definitions:**
 ```bash
 $ searchfox-cli --define 'AudioContext::CreateGain'
-Searching for definition of: AudioContext::CreateGain
-Step 1: Finding potential definition locations...
-Analyzing search results...
-Found 1 potential definition location(s)
-
-=== DEFINITION FOUND ===
-File: dom/media/webaudio/AudioContext.cpp
-Line: 469
-
-Definition context:
-     459: 
-     460: already_AddRefed<MediaStreamTrackAudioSourceNode>
-     461: AudioContext::CreateMediaStreamTrackSource(MediaStreamTrack& aMediaStreamTrack,
-     462:                                            ErrorResult& aRv) {
-     463:   MediaStreamTrackAudioSourceOptions options;
-     464:   options.mMediaStreamTrack = aMediaStreamTrack;
-     465: 
-     466:   return MediaStreamTrackAudioSourceNode::Create(*this, options, aRv);
-     467: }
-     468: 
 >>>  469: already_AddRefed<GainNode> AudioContext::CreateGain(ErrorResult& aRv) {
      470:   return GainNode::Create(*this, GainOptions(), aRv);
      471: }
-     472: 
-     473: already_AddRefed<WaveShaperNode> AudioContext::CreateWaveShaper(
-     474:     ErrorResult& aRv) {
-     475:   return WaveShaperNode::Create(*this, WaveShaperOptions(), aRv);
-     476: }
 ```
 
 The tool automatically:
@@ -173,9 +205,9 @@ The tool automatically:
 - Fetches the source code and displays complete methods/functions
 - Highlights the exact definition line with `>>>`
 
-#### Complete Function Extraction
+#### Complete Function and Class Extraction
 
-When using `--define`, the tool automatically detects and extracts complete function/method bodies using intelligent brace matching:
+When using `--define`, the tool automatically detects and extracts complete function/method bodies and class definitions using intelligent brace matching:
 
 **For simple functions:**
 ```bash
@@ -205,12 +237,14 @@ $ searchfox-cli --define 'AudioContext::AudioContext'
      205: }
 ```
 
-**Features of complete function extraction:**
+**Features of complete extraction:**
 - **Multi-language support**: Handles C++, Rust, and JavaScript function syntax
+- **Class and struct definitions**: Extracts complete class/struct bodies with proper brace matching  
 - **Smart brace matching**: Ignores braces in strings, comments, and character literals
 - **Complex signatures**: Handles multi-line function signatures and initializer lists
 - **Constructor support**: Properly extracts C++ constructors with member initialization lists
-- **Safety limits**: Truncates extremely long methods (>200 lines) to prevent output overflow
+- **Class termination**: Handles classes/structs ending with semicolons correctly
+- **Safety limits**: Truncates extremely long definitions (>200 lines) to prevent output overflow
 - **Accurate parsing**: Correctly handles nested braces, escape sequences, and comment blocks
 
 ### Request Logging and Performance Analysis
@@ -271,7 +305,7 @@ searchfox-cli --get-file dom/media/AudioStream.h
 
 - `-q, --query <QUERY>` - Search query string (supports advanced syntax)
 - `-R, --repo <REPO>` - Repository to search in (default: mozilla-central)
-- `-p, --path <PATH>` - Filter results by path prefix using regex
+- `-p, --path <PATH>` - Filter results by path prefix using regex, or search for files by path pattern
 - `-C, --case` - Enable case-sensitive search
 - `-r, --regexp` - Enable regular expression search
 - `-l, --limit <LIMIT>` - Maximum number of results to display (default: 50)
@@ -281,6 +315,10 @@ searchfox-cli --get-file dom/media/AudioStream.h
 - `--context <N>` - Show N lines of context around matches
 - `--define <SYMBOL>` - Find and display the definition of a symbol with full context
 - `--log-requests` - Enable detailed HTTP request logging with timing and size information
+- `--cpp` - Filter results to C++ files only (.cc, .cpp, .h, .hh, .hpp)
+- `--c` - Filter results to C files only (.c, .h)
+- `--webidl` - Filter results to WebIDL files only (.webidl)
+- `--js` - Filter results to JavaScript files only (.js, .mjs, .ts, .cjs, .jsx, .tsx)
 
 ## Examples
 
@@ -315,7 +353,16 @@ searchfox-cli --symbol 'CreateGain'
 
 # Find complete definition with context
 searchfox-cli --define 'AudioContext::CreateGain'
-searchfox-cli --define 'CreateGain'
+searchfox-cli --define 'AudioContext'
+
+# Language filtering
+searchfox-cli --define AudioContext -p dom/media --cpp
+searchfox-cli -q malloc --c
+searchfox-cli -q AudioContext --js
+
+# File path search
+searchfox-cli -p PContent.ipdl
+searchfox-cli -p AudioContext.cpp
 
 # Advanced query syntax
 searchfox-cli -q 'path:dom/media symbol:AudioStream'

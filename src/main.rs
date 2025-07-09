@@ -10,7 +10,7 @@ use log::{debug, error, warn};
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'"
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'"
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -28,8 +28,8 @@ struct Args {
     #[arg(
         short,
         long,
-        help = "Filter results by path prefix (e.g., ^dom/media)",
-        long_help = "Filter search results by file path prefix.\nUse regex patterns to match specific directories or files.\nExample: ^dom/media matches files starting with dom/media/"
+        help = "Filter results by path prefix (e.g., ^dom/media) or search for files by path",
+        long_help = "Filter search results by file path prefix or search for files by path pattern.\nUse regex patterns to match specific directories or files.\nCan be used alone to search for files without a query.\nExamples:\n  -p ^dom/media (with query) - filters results to files starting with dom/media/\n  -p PContent.ipdl (alone) - finds all files matching PContent.ipdl"
     )]
     path: Option<String>,
 
@@ -89,7 +89,7 @@ struct Args {
     #[arg(
         long,
         help = "Find and display the definition of a symbol",
-        long_help = "Find the definition of a symbol using searchfox's structured data.\nSearches for symbol definitions and displays the complete method/function body.\nExample: --define 'AudioContext::CreateGain'"
+        long_help = "Find the definition of a symbol using searchfox's structured data.\nSearches for symbol definitions and class/struct declarations.\nDisplays the complete method/function body or class declaration.\nExample: --define 'AudioContext::CreateGain' or --define 'AudioContext'"
     )]
     define: Option<String>,
 
@@ -99,6 +99,34 @@ struct Args {
         long_help = "Log all HTTP requests made to searchfox with detailed timing information:\n- Request start/end timestamps\n- Response size and duration\n- Network latency measurement via ping\nUseful for performance analysis and infrastructure planning"
     )]
     log_requests: bool,
+
+    #[arg(
+        long = "cpp",
+        help = "Filter results to C++ files only",
+        long_help = "Filter results to C++ files only (.cc, .cpp, .h, .hh, .hpp)"
+    )]
+    cpp: bool,
+
+    #[arg(
+        long = "c",
+        help = "Filter results to C files only", 
+        long_help = "Filter results to C files only (.c, .h)"
+    )]
+    c_lang: bool,
+
+    #[arg(
+        long = "webidl",
+        help = "Filter results to WebIDL files only",
+        long_help = "Filter results to WebIDL files only (.webidl)"
+    )]
+    webidl: bool,
+
+    #[arg(
+        long = "js",
+        help = "Filter results to JavaScript files only",
+        long_help = "Filter results to JavaScript files only (.js, .mjs, .ts, .cjs, .jsx, .tsx)"
+    )]
+    js: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,13 +251,17 @@ async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Err
 async fn find_symbol_in_search_results(
     repo: &str,
     query: &str,
-    log_requests: bool,
+    path_filter: Option<&str>,
+    args: &Args,
 ) -> anyhow::Result<Vec<(String, usize)>> {
     // First get JSON search results to find files containing the symbol
     let mut url = Url::parse(&format!("https://searchfox.org/{}/search", repo))?;
     url.query_pairs_mut().append_pair("q", query);
+    if let Some(path) = path_filter {
+        url.query_pairs_mut().append_pair("path", path);
+    }
 
-    let request_log = if log_requests {
+    let request_log = if args.log_requests {
         Some(log_request_start("GET", url.as_ref()))
     } else {
         None
@@ -270,6 +302,11 @@ async fn find_symbol_in_search_results(
             for file in files_array {
                 match serde_json::from_value::<File>(file.clone()) {
                     Ok(file) => {
+                        // Skip files that don't match language filters
+                        if !matches_language_filter(&file.path, args) {
+                            continue;
+                        }
+                        
                         debug!(
                             "Processing file: {} with {} lines",
                             file.path,
@@ -290,6 +327,9 @@ async fn find_symbol_in_search_results(
                                 let looks_like_definition = line_text.contains("{") ||           // function body start
                                     line_text.trim_end().ends_with(';') ||  // declaration
                                     line_text.contains("=") ||           // assignment/initialization
+                                    line_text.contains("class ") ||      // class declaration
+                                    line_text.contains("struct ") ||     // struct declaration
+                                    line_text.contains("interface ") ||  // interface declaration
                                     (line_text.contains("::") && (       // C++ method definition
                                         line_text.contains("(") ||       // function call/definition
                                         line_text.contains("already_AddRefed") ||  // Mozilla return type
@@ -320,15 +360,78 @@ async fn find_symbol_in_search_results(
                 }
             }
         } else if let Some(categories) = value.as_object() {
-            for (category_name, category_value) in categories {
-                if category_name.contains("Definitions")
-                    && (category_name.contains(query)
-                        || category_name.to_lowercase().contains(&query.to_lowercase()))
-                {
+            // Extract the symbol name from the query (remove "id:" prefix if present)
+            let symbol_name = if query.starts_with("id:") {
+                &query[3..]
+            } else {
+                query
+            };
+            
+            // Determine if this is a method/constructor search (contains ::) or class search
+            let is_method_search = symbol_name.contains("::");
+            
+            if !is_method_search {
+                // For class searches, look for class/struct definitions first
+                let class_def_key = format!("Definitions ({})", symbol_name);
+                if let Some(files_array) = categories.get(&class_def_key).and_then(|v| v.as_array()) {
+                    for file in files_array {
+                        match serde_json::from_value::<File>(file.clone()) {
+                            Ok(file) => {
+                                // Skip files that don't match language filters
+                                if !matches_language_filter(&file.path, args) {
+                                    continue;
+                                }
+                                
+                                for line in file.lines {
+                                    // Check if this is a class/struct definition
+                                    if line.line.contains("class ") || line.line.contains("struct ") {
+                                        debug!(
+                                            "Found class/struct definition: {}:{} - {}",
+                                            file.path,
+                                            line.lno,
+                                            line.line.trim()
+                                        );
+                                        file_locations.push((file.path.clone(), line.lno));
+                                    }
+                                }
+                            }
+                            Err(_) => continue,
+                        }
+                    }
+                }
+            }
+            
+            // Then look for other definitions and declarations
+            // For method searches, prioritize "Definitions" over "Declarations"
+            let search_order = if is_method_search {
+                vec!["Definitions", "Declarations"]
+            } else {
+                vec!["Declarations", "Definitions"] // For classes, declarations might also be useful
+            };
+            
+            for search_type in search_order {
+                for (category_name, category_value) in categories {
+                    // Skip the class definition key we already processed for non-method searches
+                    if !is_method_search {
+                        let class_def_key = format!("Definitions ({})", symbol_name);
+                        if category_name == &class_def_key {
+                            continue;
+                        }
+                    }
+                    
+                    if category_name.contains(search_type)
+                        && (category_name.contains(symbol_name)
+                            || category_name.to_lowercase().contains(&symbol_name.to_lowercase()))
+                    {
                     if let Some(files_array) = category_value.as_array() {
                         for file in files_array {
                             match serde_json::from_value::<File>(file.clone()) {
                                 Ok(file) => {
+                                    // Skip files that don't match language filters
+                                    if !matches_language_filter(&file.path, args) {
+                                        continue;
+                                    }
+                                    
                                     for line in file.lines {
                                         // Check if we have an upsearch symbol (this is the mangled symbol we need)
                                         if let Some(upsearch) = &line.upsearch {
@@ -347,6 +450,12 @@ async fn find_symbol_in_search_results(
                             }
                         }
                     }
+                    }
+                }
+                
+                // If we found results with this search type, stop searching
+                if !file_locations.is_empty() {
+                    break;
                 }
             }
         }
@@ -530,19 +639,24 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
 
     let start_line_content = lines[start_idx];
 
-    // Check if this looks like a function/method definition
+    // Check if this looks like a function/method definition or class/struct definition
     // Look for patterns like:
     // - Class::method(...)
     // - return_type Class::method(...)
     // - Class::Class(...) (constructor)
     // - function_name(...)
-    let looks_like_function = start_line_content.contains("(")
+    // - class ClassName
+    // - struct StructName
+    let looks_like_function = (start_line_content.contains("(")
         && (start_line_content.contains("{") || 
                               start_line_content.trim_end().ends_with(")") ||
                               start_line_content.trim_end().ends_with(";") ||
                               start_line_content.contains("::") ||  // C++ method/constructor
                               start_line_content.trim_start().starts_with("fn ") ||  // Rust function
-                              start_line_content.contains("function ")); // JavaScript function
+                              start_line_content.contains("function "))) // JavaScript function
+        || start_line_content.contains("class ")  // C++ class
+        || start_line_content.contains("struct ") // C++ struct
+        || start_line_content.contains("interface "); // interface
 
     if !looks_like_function {
         // Check if this could be a multi-line function signature
@@ -575,7 +689,9 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
     }
 
     // If the function declaration ends with ';', it's just a declaration
-    if start_line_content.trim_end().ends_with(';') {
+    // Exception: class/struct forward declarations like "class Foo;"
+    if start_line_content.trim_end().ends_with(';') && 
+       !(start_line_content.contains("class ") || start_line_content.contains("struct ")) {
         return (
             start_line,
             vec![format!(">>> {:4}: {}", start_line, start_line_content)],
@@ -669,7 +785,24 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
                 '}' if !in_string && !in_char && !in_single_comment && !in_multi_comment => {
                     brace_count -= 1;
                     if brace_count == 0 {
-                        // Found the end of the method
+                        // Found the end of the method/class
+                        // For classes/structs, check if there's a semicolon after the closing brace
+                        let is_class_or_struct = lines[start_idx].contains("class ") || 
+                                                 lines[start_idx].contains("struct ");
+                        if is_class_or_struct {
+                            // Look for semicolon on same line or next line
+                            let remaining_on_line = &line[j+1..];
+                            if remaining_on_line.trim().starts_with(';') {
+                                // Include the semicolon in the output
+                                return (start_line, result_lines);
+                            } else if i + 1 < lines.len() {
+                                // Check next line for semicolon
+                                let next_line = lines[i + 1];
+                                if next_line.trim().starts_with(';') {
+                                    result_lines.push(format!("     {:4}: {}", i + 2, next_line));
+                                }
+                            }
+                        }
                         return (start_line, result_lines);
                     }
                 }
@@ -694,6 +827,47 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
 /// Check if we're in a Mozilla repository by looking for the mach file
 fn is_mozilla_repository() -> bool {
     std::path::Path::new("./mach").exists()
+}
+
+/// Check if a file path matches the language filters
+fn matches_language_filter(path: &str, args: &Args) -> bool {
+    // If no language filters are specified, include all files
+    if !args.cpp && !args.c_lang && !args.webidl && !args.js {
+        return true;
+    }
+
+    let path_lower = path.to_lowercase();
+    
+    // Check C++ files
+    if args.cpp && (path_lower.ends_with(".cc") || 
+                    path_lower.ends_with(".cpp") || 
+                    path_lower.ends_with(".h") || 
+                    path_lower.ends_with(".hh") || 
+                    path_lower.ends_with(".hpp")) {
+        return true;
+    }
+    
+    // Check C files
+    if args.c_lang && (path_lower.ends_with(".c") || path_lower.ends_with(".h")) {
+        return true;
+    }
+    
+    // Check WebIDL files
+    if args.webidl && path_lower.ends_with(".webidl") {
+        return true;
+    }
+    
+    // Check JavaScript files
+    if args.js && (path_lower.ends_with(".js") || 
+                   path_lower.ends_with(".mjs") || 
+                   path_lower.ends_with(".ts") || 
+                   path_lower.ends_with(".cjs") || 
+                   path_lower.ends_with(".jsx") || 
+                   path_lower.ends_with(".tsx")) {
+        return true;
+    }
+    
+    false
 }
 
 /// Try to read a file locally from the repository
@@ -911,11 +1085,14 @@ async fn get_definition_context(
 async fn find_and_display_definition(
     repo: &str,
     symbol: &str,
-    log_requests: bool,
+    path_filter: Option<&str>,
+    args: &Args,
 ) -> anyhow::Result<()> {
     // Step 1: Find potential definition locations from search results
     debug!("Step 1: Finding potential definition locations...");
-    let file_locations = find_symbol_in_search_results(repo, symbol, log_requests).await?;
+    // Use id: prefix for better definition searches
+    let query = format!("id:{}", symbol);
+    let file_locations = find_symbol_in_search_results(repo, &query, path_filter, args).await?;
 
     if file_locations.is_empty() {
         error!("No potential definitions found for '{}'", symbol);
@@ -935,7 +1112,7 @@ async fn find_and_display_definition(
             *line_number,
             10,
             Some(symbol),
-            log_requests,
+            args.log_requests,
         )
         .await
         {
@@ -1034,6 +1211,9 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
                 q.clone()
             }
         }
+    } else if args.path.is_some() {
+        // If only path is specified, use an empty query
+        String::new()
     } else {
         anyhow::bail!("No query specified");
     };
@@ -1085,12 +1265,27 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
         if let Some(files_array) = value.as_array() {
             for file in files_array {
                 let file: File = serde_json::from_value(file.clone())?;
-                for line in file.lines {
+                
+                // Skip files that don't match language filters
+                if !matches_language_filter(&file.path, &args) {
+                    continue;
+                }
+                
+                // If searching by path only, show the file path even if there are no line matches
+                if args.path.is_some() && args.query.is_none() && args.symbol.is_none() && args.id.is_none() {
                     if count >= args.limit {
                         break;
                     }
-                    println!("{}:{}: {}", file.path, line.lno, line.line.trim_end());
+                    println!("{}", file.path);
                     count += 1;
+                } else {
+                    for line in file.lines {
+                        if count >= args.limit {
+                            break;
+                        }
+                        println!("{}:{}: {}", file.path, line.lno, line.line.trim_end());
+                        count += 1;
+                    }
                 }
             }
         } else if let Some(obj) = value.as_object() {
@@ -1098,12 +1293,27 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
                 if let Some(files) = file_list.as_array() {
                     for file in files {
                         let file: File = serde_json::from_value(file.clone())?;
-                        for line in file.lines {
+                        
+                        // Skip files that don't match language filters
+                        if !matches_language_filter(&file.path, &args) {
+                            continue;
+                        }
+                        
+                        // If searching by path only, show the file path even if there are no line matches
+                        if args.path.is_some() && args.query.is_none() && args.symbol.is_none() && args.id.is_none() {
                             if count >= args.limit {
                                 break;
                             }
-                            println!("{}:{}: {}", file.path, line.lno, line.line.trim_end());
+                            println!("{}", file.path);
                             count += 1;
+                        } else {
+                            for line in file.lines {
+                                if count >= args.limit {
+                                    break;
+                                }
+                                println!("{}:{}: {}", file.path, line.lno, line.line.trim_end());
+                                count += 1;
+                            }
                         }
                     }
                 }
@@ -1137,12 +1347,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(symbol) = &args.define {
-        find_and_display_definition(&args.repo, symbol, args.log_requests).await
+        find_and_display_definition(&args.repo, symbol, args.path.as_deref(), &args).await
     } else if let Some(path) = &args.get_file {
         get_file(&args.repo, path, args.log_requests).await
-    } else if args.query.is_some() || args.symbol.is_some() || args.id.is_some() {
+    } else if args.query.is_some() || args.symbol.is_some() || args.id.is_some() || args.path.is_some() {
         search_code(&args).await
     } else {
-        anyhow::bail!("Either --query, --symbol, --id, --get-file, or --define must be provided");
+        anyhow::bail!("Either --query, --symbol, --id, --get-file, --define, or --path must be provided");
     }
 }
