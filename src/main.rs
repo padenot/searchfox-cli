@@ -253,7 +253,7 @@ async fn find_symbol_in_search_results(
     args: &Args,
 ) -> anyhow::Result<Vec<(String, usize)>> {
     // First get JSON search results to find files containing the symbol
-    let mut url = Url::parse(&format!("https://searchfox.org/{}/search", repo))?;
+    let mut url = Url::parse(&format!("https://searchfox.org/{repo}/search"))?;
     url.query_pairs_mut().append_pair("q", query);
     if let Some(path) = path_filter {
         url.query_pairs_mut().append_pair("path", path);
@@ -348,7 +348,7 @@ async fn find_symbol_in_search_results(
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to parse file JSON: {}", e);
+                        warn!("Failed to parse file JSON: {e}");
                         debug!(
                             "File JSON: {}",
                             serde_json::to_string_pretty(&file)
@@ -366,7 +366,7 @@ async fn find_symbol_in_search_results(
 
             if !is_method_search {
                 // For class searches, look for class/struct definitions first
-                let class_def_key = format!("Definitions ({})", symbol_name);
+                let class_def_key = format!("Definitions ({symbol_name})");
                 if let Some(files_array) = categories.get(&class_def_key).and_then(|v| v.as_array())
                 {
                     for file in files_array {
@@ -409,7 +409,7 @@ async fn find_symbol_in_search_results(
                 for (category_name, category_value) in categories {
                     // Skip the class definition key we already processed for non-method searches
                     if !is_method_search {
-                        let class_def_key = format!("Definitions ({})", symbol_name);
+                        let class_def_key = format!("Definitions ({symbol_name})");
                         if category_name == &class_def_key {
                             continue;
                         }
@@ -470,11 +470,10 @@ async fn extract_symbols_from_source_page(
     line_number: usize,
 ) -> anyhow::Result<Vec<String>> {
     let url = format!(
-        "https://searchfox.org/{}/source/{}#{}",
-        repo, file_path, line_number
+        "https://searchfox.org/{repo}/source/{file_path}#{line_number}"
     );
 
-    debug!("Fetching source page: {}", url);
+    debug!("Fetching source page: {url}");
 
     let response = reqwest::Client::new()
         .get(&url)
@@ -491,8 +490,8 @@ async fn extract_symbols_from_source_page(
     let mut mangled_symbols = Vec::new();
 
     // Look for elements that might contain symbol information around the target line
-    let line_id = format!("#{}", line_number);
-    let line_id_alt = format!("#line-{}", line_number);
+    let line_id = format!("#{line_number}");
+    let line_id_alt = format!("#line-{line_number}");
     let selectors_to_try = [
         line_id.as_str(),
         line_id_alt.as_str(),
@@ -513,12 +512,12 @@ async fn extract_symbols_from_source_page(
                         || attr_name.contains("data")
                         || attr_name == "title"
                     {
-                        debug!("Found attribute {}: {}", attr_name, attr_value);
+                        debug!("Found attribute {attr_name}: {attr_value}");
 
                         // Extract mangled symbols from attribute values
                         for word in attr_value.split(|c: char| !c.is_alphanumeric() && c != '_') {
                             if word.starts_with("_Z") && word.len() > 10 {
-                                debug!("Found mangled symbol: {}", word);
+                                debug!("Found mangled symbol: {word}");
                                 mangled_symbols.push(word.to_string());
                             }
                         }
@@ -582,8 +581,8 @@ async fn find_symbol_definition(
     repo: &str,
     mangled_symbol: &str,
 ) -> anyhow::Result<Option<(String, String, usize)>> {
-    let query = format!("symbol:{}", mangled_symbol);
-    let mut url = Url::parse(&format!("https://searchfox.org/{}/search", repo))?;
+    let query = format!("symbol:{mangled_symbol}");
+    let mut url = Url::parse(&format!("https://searchfox.org/{repo}/search"))?;
     url.query_pairs_mut().append_pair("q", &query);
 
     let response = reqwest::Client::new()
@@ -679,7 +678,7 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
                 .map(|(i, line)| {
                     let line_num = context_start + i + 1;
                     let marker = if line_num == start_line { ">>>" } else { "   " };
-                    format!("{} {:4}: {}", marker, line_num, line)
+                    format!("{marker} {line_num:4}: {line}")
                 })
                 .collect();
             return (start_line, context_lines);
@@ -744,7 +743,7 @@ fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<Str
     for (i, line) in lines.iter().enumerate().skip(start_idx) {
         let line_num = i + 1;
         let marker = if line_num == start_line { ">>>" } else { "   " };
-        result_lines.push(format!("{} {:4}: {}", marker, line_num, line));
+        result_lines.push(format!("{marker} {line_num:4}: {line}"));
 
         // Parse characters to track braces while ignoring those in strings/comments
         let chars: Vec<char> = line.chars().collect();
@@ -881,7 +880,7 @@ fn read_local_file(file_path: &str) -> Option<String> {
     }
 
     // If that fails, try with ./ prefix
-    if let Ok(content) = std::fs::read_to_string(format!("./{}", file_path)) {
+    if let Ok(content) = std::fs::read_to_string(format!("./{file_path}")) {
         return Some(content);
     }
 
@@ -998,7 +997,7 @@ async fn get_definition_context(
                 let line_num = i + 1;
                 if line_num >= start_line && line_num <= end_line {
                     let marker = if line_num == final_line { ">>>" } else { "   " };
-                    result.push_str(&format!("{} {:4}: {}\n", marker, line_num, line));
+                    result.push_str(&format!("{marker} {line_num:4}: {line}\n"));
                 }
             }
 
@@ -1025,8 +1024,7 @@ async fn get_definition_context(
     };
 
     let github_url = format!(
-        "https://raw.githubusercontent.com/{}/{}/{}",
-        github_repo, branch, file_path
+        "https://raw.githubusercontent.com/{github_repo}/{branch}/{file_path}"
     );
 
     let request_log = if log_requests {
@@ -1077,7 +1075,7 @@ async fn get_definition_context(
             } else {
                 "   "
             };
-            result.push_str(&format!("{} {:4}: {}\n", marker, line_num, line));
+            result.push_str(&format!("{marker} {line_num:4}: {line}\n"));
         }
     }
 
@@ -1094,11 +1092,11 @@ async fn find_and_display_definition(
     // Step 1: Find potential definition locations from search results
     debug!("Step 1: Finding potential definition locations...");
     // Use id: prefix for better definition searches
-    let query = format!("id:{}", symbol);
+    let query = format!("id:{symbol}");
     let file_locations = find_symbol_in_search_results(repo, &query, path_filter, args).await?;
 
     if file_locations.is_empty() {
-        error!("No potential definitions found for '{}'", symbol);
+        error!("No potential definitions found for '{symbol}'");
         return Ok(());
     }
 
@@ -1120,17 +1118,17 @@ async fn find_and_display_definition(
         .await
         {
             Ok(context) => {
-                println!("{}", context);
+                println!("{context}");
             }
             Err(e) => {
-                error!("Could not fetch context: {}", e);
+                error!("Could not fetch context: {e}");
             }
         }
 
         return Ok(());
     }
 
-    error!("No definition found for symbol '{}'", symbol);
+    error!("No definition found for symbol '{symbol}'");
     Ok(())
 }
 
@@ -1153,8 +1151,7 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
     };
 
     let github_url = format!(
-        "https://raw.githubusercontent.com/{}/{}/{}",
-        github_repo, branch, path
+        "https://raw.githubusercontent.com/{github_repo}/{branch}/{path}"
     );
 
     let request_log = if log_requests {
@@ -1173,7 +1170,7 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
             log_request_end(req_log, 200, response_size);
         }
 
-        print!("{}", text);
+        print!("{text}");
         return Ok(());
     } else if let Some(req_log) = request_log {
         log_request_end(req_log, response.status().as_u16(), 0);
@@ -1193,9 +1190,9 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
 async fn search_code(args: &Args) -> anyhow::Result<()> {
     // Build query string based on arguments
     let query = if let Some(symbol) = &args.symbol {
-        format!("symbol:{}", symbol)
+        format!("symbol:{symbol}")
     } else if let Some(id) = &args.id {
-        format!("id:{}", id)
+        format!("id:{id}")
     } else if let Some(q) = &args.query {
         // Check if query already contains advanced syntax
         if q.contains("path:")
@@ -1209,7 +1206,7 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
         } else {
             // Add context if specified
             if let Some(context) = args.context {
-                format!("context:{} text:{}", context, q)
+                format!("context:{context} text:{q}")
             } else {
                 q.clone()
             }
@@ -1336,7 +1333,7 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
         }
     }
 
-    println!("Total matches: {}", count);
+    println!("Total matches: {count}");
     Ok(())
 }
 #[tokio::main]
@@ -1352,7 +1349,7 @@ async fn main() -> anyhow::Result<()> {
     if args.log_requests {
         eprintln!("=== REQUEST LOGGING ENABLED ===");
         if let Err(e) = ping_searchfox(&args.repo).await {
-            eprintln!("[PING] Warning: Could not ping searchfox.org: {}", e);
+            eprintln!("[PING] Warning: Could not ping searchfox.org: {e}");
         }
         eprintln!("================================");
     }
