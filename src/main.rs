@@ -469,9 +469,7 @@ async fn extract_symbols_from_source_page(
     file_path: &str,
     line_number: usize,
 ) -> anyhow::Result<Vec<String>> {
-    let url = format!(
-        "https://searchfox.org/{repo}/source/{file_path}#{line_number}"
-    );
+    let url = format!("https://searchfox.org/{repo}/source/{file_path}#{line_number}");
 
     debug!("Fetching source page: {url}");
 
@@ -1023,9 +1021,8 @@ async fn get_definition_context(
         _ => "main",
     };
 
-    let github_url = format!(
-        "https://raw.githubusercontent.com/{github_repo}/{branch}/{file_path}"
-    );
+    let github_url =
+        format!("https://raw.githubusercontent.com/{github_repo}/{branch}/{file_path}");
 
     let request_log = if log_requests {
         Some(log_request_start("GET", &github_url))
@@ -1150,9 +1147,7 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
         _ => "main",
     };
 
-    let github_url = format!(
-        "https://raw.githubusercontent.com/{github_repo}/{branch}/{path}"
-    );
+    let github_url = format!("https://raw.githubusercontent.com/{github_repo}/{branch}/{path}");
 
     let request_log = if log_requests {
         Some(log_request_start("GET", &github_url))
