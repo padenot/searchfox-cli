@@ -1,10 +1,20 @@
 use clap::Parser;
 use log::{debug, error, warn};
-use reqwest::Url;
+use reqwest::{Client, Url};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+fn create_tls13_client() -> anyhow::Result<Client> {
+    Client::builder()
+        .use_rustls_tls()
+        .min_tls_version(reqwest::tls::Version::TLS_1_2)
+        .max_tls_version(reqwest::tls::Version::TLS_1_3)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build TLS client with rustls: {}", e))
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -217,7 +227,7 @@ fn log_request_end(request_log: RequestLog, status: u16, size_bytes: usize) {
 }
 
 /// Measure baseline network latency using a simple HTTP HEAD request
-async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Error>> {
+async fn ping_searchfox(client: &Client, _repo: &str) -> Result<Duration, Box<dyn std::error::Error>> {
     eprintln!(
         "[PING] Testing network latency to searchfox.org (ICMP ping disabled, using HTTP HEAD)..."
     );
@@ -225,7 +235,7 @@ async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Err
     let ping_url = "https://searchfox.org/";
     let start = Instant::now();
 
-    let response = reqwest::Client::new()
+    let response = client
         .head(ping_url)
         .timeout(Duration::from_secs(10))
         .send()
@@ -247,6 +257,7 @@ async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Err
 /// let's search for the symbol and then visit individual source pages to find
 /// the actual definitions with their symbols
 async fn find_symbol_in_search_results(
+    client: &Client,
     repo: &str,
     query: &str,
     path_filter: Option<&str>,
@@ -265,7 +276,7 @@ async fn find_symbol_in_search_results(
         None
     };
 
-    let response = reqwest::Client::new()
+    let response = client
         .get(url.clone())
         .header("Accept", "application/json")
         .send()
@@ -465,6 +476,7 @@ async fn find_symbol_in_search_results(
 /// Extract mangled symbols from a specific source file page
 #[allow(dead_code)]
 async fn extract_symbols_from_source_page(
+    client: &Client,
     repo: &str,
     file_path: &str,
     line_number: usize,
@@ -473,7 +485,7 @@ async fn extract_symbols_from_source_page(
 
     debug!("Fetching source page: {url}");
 
-    let response = reqwest::Client::new()
+    let response = client
         .get(&url)
         .header("Accept", "text/html")
         .send()
@@ -576,6 +588,7 @@ fn extract_symbols_from_json(json: &serde_json::Value, symbols: &mut Vec<String>
 /// Find the definition of a symbol using its mangled form
 #[allow(dead_code)]
 async fn find_symbol_definition(
+    client: &Client,
     repo: &str,
     mangled_symbol: &str,
 ) -> anyhow::Result<Option<(String, String, usize)>> {
@@ -583,7 +596,7 @@ async fn find_symbol_definition(
     let mut url = Url::parse(&format!("https://searchfox.org/{repo}/search"))?;
     url.query_pairs_mut().append_pair("q", &query);
 
-    let response = reqwest::Client::new()
+    let response = client
         .get(url)
         .header("Accept", "application/json")
         .send()
@@ -928,6 +941,7 @@ fn find_symbol_in_local_content(
 
 /// Get the definition context (multiple lines around the definition)
 async fn get_definition_context(
+    client: &Client,
     repo: &str,
     file_path: &str,
     line_number: usize,
@@ -1030,7 +1044,7 @@ async fn get_definition_context(
         None
     };
 
-    let response = reqwest::get(&github_url).await?;
+    let response = client.get(&github_url).send().await?;
 
     if !response.status().is_success() {
         if let Some(req_log) = request_log {
@@ -1081,6 +1095,7 @@ async fn get_definition_context(
 
 /// Find and display the definition of a symbol
 async fn find_and_display_definition(
+    client: &Client,
     repo: &str,
     symbol: &str,
     path_filter: Option<&str>,
@@ -1090,7 +1105,7 @@ async fn find_and_display_definition(
     debug!("Step 1: Finding potential definition locations...");
     // Use id: prefix for better definition searches
     let query = format!("id:{symbol}");
-    let file_locations = find_symbol_in_search_results(repo, &query, path_filter, args).await?;
+    let file_locations = find_symbol_in_search_results(client, repo, &query, path_filter, args).await?;
 
     if file_locations.is_empty() {
         error!("No potential definitions found for '{symbol}'");
@@ -1105,6 +1120,7 @@ async fn find_and_display_definition(
     // Step 2: Show the definition we found directly from search results
     if let Some((file_path, line_number)) = file_locations.first() {
         match get_definition_context(
+            client,
             repo,
             file_path,
             *line_number,
@@ -1129,7 +1145,7 @@ async fn find_and_display_definition(
     Ok(())
 }
 
-async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<()> {
+async fn get_file(client: &Client, repo: &str, path: &str, log_requests: bool) -> anyhow::Result<()> {
     let github_repo = match repo {
         "comm-central" => "mozilla/releases-comm-central",
         _ => "mozilla/firefox",
@@ -1155,7 +1171,7 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
         None
     };
 
-    let response = reqwest::get(&github_url).await?;
+    let response = client.get(&github_url).send().await?;
 
     if response.status().is_success() {
         let text = response.text().await?;
@@ -1182,7 +1198,7 @@ async fn get_file(repo: &str, path: &str, log_requests: bool) -> anyhow::Result<
     anyhow::bail!("Could not fetch file from GitHub");
 }
 
-async fn search_code(args: &Args) -> anyhow::Result<()> {
+async fn search_code(client: &Client, args: &Args) -> anyhow::Result<()> {
     // Build query string based on arguments
     let query = if let Some(symbol) = &args.symbol {
         format!("symbol:{symbol}")
@@ -1228,7 +1244,7 @@ async fn search_code(args: &Args) -> anyhow::Result<()> {
         None
     };
 
-    let response = reqwest::Client::new()
+    let response = client
         .get(url.clone())
         .header("Accept", "application/json")
         .send()
@@ -1340,25 +1356,28 @@ async fn main() -> anyhow::Result<()> {
     builder.init();
     let args = Args::parse();
 
+    // Create TLS 1.3 client
+    let client = create_tls13_client()?;
+
     // Perform initial ping if request logging is enabled
     if args.log_requests {
         eprintln!("=== REQUEST LOGGING ENABLED ===");
-        if let Err(e) = ping_searchfox(&args.repo).await {
+        if let Err(e) = ping_searchfox(&client, &args.repo).await {
             eprintln!("[PING] Warning: Could not ping searchfox.org: {e}");
         }
         eprintln!("================================");
     }
 
     if let Some(symbol) = &args.define {
-        find_and_display_definition(&args.repo, symbol, args.path.as_deref(), &args).await
+        find_and_display_definition(&client, &args.repo, symbol, args.path.as_deref(), &args).await
     } else if let Some(path) = &args.get_file {
-        get_file(&args.repo, path, args.log_requests).await
+        get_file(&client, &args.repo, path, args.log_requests).await
     } else if args.query.is_some()
         || args.symbol.is_some()
         || args.id.is_some()
         || args.path.is_some()
     {
-        search_code(&args).await
+        search_code(&client, &args).await
     } else {
         anyhow::bail!(
             "Either --query, --symbol, --id, --get-file, --define, or --path must be provided"
