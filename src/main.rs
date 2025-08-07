@@ -227,7 +227,10 @@ fn log_request_end(request_log: RequestLog, status: u16, size_bytes: usize) {
 }
 
 /// Measure baseline network latency using a simple HTTP HEAD request
-async fn ping_searchfox(client: &Client, _repo: &str) -> Result<Duration, Box<dyn std::error::Error>> {
+async fn ping_searchfox(
+    client: &Client,
+    _repo: &str,
+) -> Result<Duration, Box<dyn std::error::Error>> {
     eprintln!(
         "[PING] Testing network latency to searchfox.org (ICMP ping disabled, using HTTP HEAD)..."
     );
@@ -248,7 +251,9 @@ async fn ping_searchfox(client: &Client, _repo: &str) -> Result<Duration, Box<dy
         latency.as_millis(),
         response.status()
     );
-    eprintln!("[PING] Note: This includes minimal server processing time, not just network latency");
+    eprintln!(
+        "[PING] Note: This includes minimal server processing time, not just network latency"
+    );
 
     Ok(latency)
 }
@@ -1105,7 +1110,8 @@ async fn find_and_display_definition(
     debug!("Step 1: Finding potential definition locations...");
     // Use id: prefix for better definition searches
     let query = format!("id:{symbol}");
-    let file_locations = find_symbol_in_search_results(client, repo, &query, path_filter, args).await?;
+    let file_locations =
+        find_symbol_in_search_results(client, repo, &query, path_filter, args).await?;
 
     if file_locations.is_empty() {
         error!("No potential definitions found for '{symbol}'");
@@ -1145,7 +1151,12 @@ async fn find_and_display_definition(
     Ok(())
 }
 
-async fn get_file(client: &Client, repo: &str, path: &str, log_requests: bool) -> anyhow::Result<()> {
+async fn get_file(
+    client: &Client,
+    repo: &str,
+    path: &str,
+    log_requests: bool,
+) -> anyhow::Result<()> {
     let github_repo = match repo {
         "comm-central" => "mozilla/releases-comm-central",
         _ => "mozilla/firefox",
