@@ -186,7 +186,7 @@ fn log_request_start(method: &str, url: &str) -> RequestLog {
             request_id: REQUEST_COUNTER,
         };
 
-        debug!(
+        eprintln!(
             "[REQ-{}] {} {} - START",
             log.request_id, log.method, log.url
         );
@@ -205,7 +205,7 @@ fn log_request_end(request_log: RequestLog, status: u16, size_bytes: usize) {
         duration,
     };
 
-    debug!(
+    eprintln!(
         "[REQ-{}] {} {} - END ({}ms, {} bytes, HTTP {})",
         response_log.request_id,
         request_log.method,
@@ -218,7 +218,7 @@ fn log_request_end(request_log: RequestLog, status: u16, size_bytes: usize) {
 
 /// Measure baseline network latency using a simple HTTP HEAD request
 async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Error>> {
-    debug!(
+    eprintln!(
         "[PING] Testing network latency to searchfox.org (ICMP ping disabled, using HTTP HEAD)..."
     );
 
@@ -233,12 +233,12 @@ async fn ping_searchfox(_repo: &str) -> Result<Duration, Box<dyn std::error::Err
 
     let latency = start.elapsed();
 
-    debug!(
+    eprintln!(
         "[PING] HTTP HEAD latency: {}ms (HTTP {})",
         latency.as_millis(),
         response.status()
     );
-    debug!("[PING] Note: This includes minimal server processing time, not just network latency");
+    eprintln!("[PING] Note: This includes minimal server processing time, not just network latency");
 
     Ok(latency)
 }
