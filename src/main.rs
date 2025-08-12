@@ -6,8 +6,17 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn get_user_agent() -> String {
+    let magic_word =
+        std::env::var("SEARCHFOX_MAGIC_WORD").unwrap_or_else(|_| "sésame ouvre toi".to_string());
+    format!("searchfox-cli/{} ({})", VERSION, magic_word)
+}
+
 fn create_tls13_client() -> anyhow::Result<Client> {
     Client::builder()
+        .user_agent(get_user_agent())
         .use_rustls_tls()
         .min_tls_version(reqwest::tls::Version::TLS_1_2)
         .max_tls_version(reqwest::tls::Version::TLS_1_3)
@@ -1367,7 +1376,6 @@ async fn main() -> anyhow::Result<()> {
     builder.init();
     let args = Args::parse();
 
-    // Create TLS 1.3 client
     let client = create_tls13_client()?;
 
     // Perform initial ping if request logging is enabled
