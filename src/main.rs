@@ -29,7 +29,7 @@ fn create_tls13_client() -> anyhow::Result<Client> {
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'"
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2"
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -146,6 +146,35 @@ struct Args {
         long_help = "Filter results to JavaScript files only (.js, .mjs, .ts, .cjs, .jsx, .tsx)"
     )]
     js: bool,
+
+    #[arg(
+        long = "calls-from",
+        help = "Find functions called by the specified symbol",
+        long_help = "Search for functions called by the specified symbol using call graph analysis.\nExample: --calls-from 'mozilla::dom::AudioContext::CreateGain'"
+    )]
+    calls_from: Option<String>,
+
+    #[arg(
+        long = "calls-to", 
+        help = "Find functions that call the specified symbol",
+        long_help = "Search for functions that call the specified symbol using call graph analysis.\nExample: --calls-to 'mozilla::dom::AudioContext::CreateGain'"
+    )]
+    calls_to: Option<String>,
+
+    #[arg(
+        long = "calls-between",
+        help = "Find function calls between two symbols or classes", 
+        long_help = "Find function calls between two symbols or classes.\nExample: --calls-between 'AudioContext,AudioNode'"
+    )]
+    calls_between: Option<String>,
+
+    #[arg(
+        long = "depth",
+        default_value_t = 2,
+        help = "Set traversal depth for call graph searches",
+        long_help = "Set the depth of traversal for call graph searches. Higher values show more indirect calls.\nExample: --depth 3"
+    )]
+    depth: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1218,6 +1247,95 @@ async fn get_file(
     anyhow::bail!("Could not fetch file from GitHub");
 }
 
+async fn search_call_graph(client: &Client, args: &Args) -> anyhow::Result<()> {
+    let query = if let Some(symbol) = &args.calls_from {
+        format!("calls-from:'{}' depth:{} graph-format:json", symbol, args.depth)
+    } else if let Some(symbol) = &args.calls_to {
+        format!("calls-to:'{}' depth:{} graph-format:json", symbol, args.depth)
+    } else if let Some(symbols) = &args.calls_between {
+        let parts: Vec<&str> = symbols.split(',').collect();
+        if parts.len() == 2 {
+            format!("calls-between-source:'{}' calls-between-target:'{}' depth:{} graph-format:json",
+                parts[0].trim(), parts[1].trim(), args.depth)
+        } else {
+            anyhow::bail!("calls-between requires two symbols separated by comma, e.g., 'ClassA,ClassB'");
+        }
+    } else {
+        anyhow::bail!("No call graph query specified");
+    };
+
+    let mut url = Url::parse(&format!("https://searchfox.org/{}/query/default", args.repo))?;
+    url.query_pairs_mut().append_pair("q", &query);
+
+    let request_log = if args.log_requests {
+        Some(log_request_start("GET", url.as_ref()))
+    } else {
+        None
+    };
+
+    let response = client
+        .get(url.clone())
+        .header("Accept", "application/json")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        if let Some(req_log) = request_log {
+            log_request_end(req_log, response.status().as_u16(), 0);
+        }
+        anyhow::bail!("Request failed: {}", response.status());
+    }
+
+    let response_text = response.text().await?;
+    let response_size = response_text.len();
+
+    if let Some(req_log) = request_log {
+        log_request_end(req_log, 200, response_size);
+    }
+
+    // Parse and display call graph results
+    match serde_json::from_str::<serde_json::Value>(&response_text) {
+        Ok(json) => {
+            if let Some(symbol_graph) = json.get("SymbolGraphCollection") {
+                println!("Call graph results found!");
+                println!("{}", serde_json::to_string_pretty(symbol_graph)?);
+            } else {
+                // Fallback to display all non-metadata results
+                match serde_json::from_str::<SearchfoxResponse>(&response_text) {
+                    Ok(parsed_json) => {
+                        let mut found_results = false;
+                        for (key, value) in &parsed_json {
+                            if key.starts_with('*') {
+                                continue; // skip metadata
+                            }
+                            
+                            if value.as_array().is_some() || value.as_object().is_some() {
+                                found_results = true;
+                                println!("{}: {}", key, serde_json::to_string_pretty(value)?);
+                            }
+                        }
+                        
+                        if !found_results {
+                            println!("No call graph results found for the query.");
+                        }
+                    }
+                    Err(_) => {
+                        println!("Call graph results:");
+                        println!("{}", serde_json::to_string_pretty(&json)?);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("Failed to parse response as JSON");
+            println!("Raw response:");
+            println!("{}", response_text);
+        }
+    }
+
+    Ok(())
+}
+
 async fn search_code(client: &Client, args: &Args) -> anyhow::Result<()> {
     // Build query string based on arguments
     let query = if let Some(symbol) = &args.symbol {
@@ -1391,6 +1509,8 @@ async fn main() -> anyhow::Result<()> {
         find_and_display_definition(&client, &args.repo, symbol, args.path.as_deref(), &args).await
     } else if let Some(path) = &args.get_file {
         get_file(&client, &args.repo, path, args.log_requests).await
+    } else if args.calls_from.is_some() || args.calls_to.is_some() || args.calls_between.is_some() {
+        search_call_graph(&client, &args).await
     } else if args.query.is_some()
         || args.symbol.is_some()
         || args.id.is_some()
@@ -1399,7 +1519,7 @@ async fn main() -> anyhow::Result<()> {
         search_code(&client, &args).await
     } else {
         anyhow::bail!(
-            "Either --query, --symbol, --id, --get-file, --define, or --path must be provided"
+            "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, or --path must be provided"
         );
     }
 }
