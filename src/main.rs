@@ -155,7 +155,7 @@ struct Args {
     calls_from: Option<String>,
 
     #[arg(
-        long = "calls-to", 
+        long = "calls-to",
         help = "Find functions that call the specified symbol",
         long_help = "Search for functions that call the specified symbol using call graph analysis.\nExample: --calls-to 'mozilla::dom::AudioContext::CreateGain'"
     )]
@@ -163,7 +163,7 @@ struct Args {
 
     #[arg(
         long = "calls-between",
-        help = "Find function calls between two symbols or classes", 
+        help = "Find function calls between two symbols or classes",
         long_help = "Find function calls between two symbols or classes.\nExample: --calls-between 'AudioContext,AudioNode'"
     )]
     calls_between: Option<String>,
@@ -1249,22 +1249,37 @@ async fn get_file(
 
 async fn search_call_graph(client: &Client, args: &Args) -> anyhow::Result<()> {
     let query = if let Some(symbol) = &args.calls_from {
-        format!("calls-from:'{}' depth:{} graph-format:json", symbol, args.depth)
+        format!(
+            "calls-from:'{}' depth:{} graph-format:json",
+            symbol, args.depth
+        )
     } else if let Some(symbol) = &args.calls_to {
-        format!("calls-to:'{}' depth:{} graph-format:json", symbol, args.depth)
+        format!(
+            "calls-to:'{}' depth:{} graph-format:json",
+            symbol, args.depth
+        )
     } else if let Some(symbols) = &args.calls_between {
         let parts: Vec<&str> = symbols.split(',').collect();
         if parts.len() == 2 {
-            format!("calls-between-source:'{}' calls-between-target:'{}' depth:{} graph-format:json",
-                parts[0].trim(), parts[1].trim(), args.depth)
+            format!(
+                "calls-between-source:'{}' calls-between-target:'{}' depth:{} graph-format:json",
+                parts[0].trim(),
+                parts[1].trim(),
+                args.depth
+            )
         } else {
-            anyhow::bail!("calls-between requires two symbols separated by comma, e.g., 'ClassA,ClassB'");
+            anyhow::bail!(
+                "calls-between requires two symbols separated by comma, e.g., 'ClassA,ClassB'"
+            );
         }
     } else {
         anyhow::bail!("No call graph query specified");
     };
 
-    let mut url = Url::parse(&format!("https://searchfox.org/{}/query/default", args.repo))?;
+    let mut url = Url::parse(&format!(
+        "https://searchfox.org/{}/query/default",
+        args.repo
+    ))?;
     url.query_pairs_mut().append_pair("q", &query);
 
     let request_log = if args.log_requests {
@@ -1308,13 +1323,13 @@ async fn search_call_graph(client: &Client, args: &Args) -> anyhow::Result<()> {
                             if key.starts_with('*') {
                                 continue; // skip metadata
                             }
-                            
+
                             if value.as_array().is_some() || value.as_object().is_some() {
                                 found_results = true;
                                 println!("{}: {}", key, serde_json::to_string_pretty(value)?);
                             }
                         }
-                        
+
                         if !found_results {
                             println!("No call graph results found for the query.");
                         }
