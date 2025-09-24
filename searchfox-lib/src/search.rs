@@ -306,7 +306,8 @@ impl SearchfoxClient {
 
                 if !is_method_search {
                     let class_def_key = format!("Definitions ({symbol_name})");
-                    if let Some(files_array) = categories.get(&class_def_key).and_then(|v| v.as_array())
+                    if let Some(files_array) =
+                        categories.get(&class_def_key).and_then(|v| v.as_array())
                     {
                         for file in files_array {
                             match serde_json::from_value::<File>(file.clone()) {
@@ -316,7 +317,8 @@ impl SearchfoxClient {
                                     }
 
                                     for line in file.lines {
-                                        if line.line.contains("class ") || line.line.contains("struct ")
+                                        if line.line.contains("class ")
+                                            || line.line.contains("struct ")
                                         {
                                             debug!(
                                                 "Found class/struct definition: {}:{} - {}",
@@ -366,7 +368,10 @@ impl SearchfoxClient {
                                             for line in file.lines {
                                                 if let Some(upsearch) = &line.upsearch {
                                                     if upsearch.starts_with("symbol:_Z") {
-                                                        return Ok(vec![(file.path.clone(), line.lno)]);
+                                                        return Ok(vec![(
+                                                            file.path.clone(),
+                                                            line.lno,
+                                                        )]);
                                                     }
                                                 }
                                                 file_locations.push((file.path.clone(), line.lno));

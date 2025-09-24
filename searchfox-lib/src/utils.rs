@@ -63,12 +63,12 @@ pub fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec
     let start_line_content = lines[start_idx];
 
     let looks_like_function = (start_line_content.contains("(")
-        && (start_line_content.contains("{") ||
-                              start_line_content.trim_end().ends_with(")") ||
-                              start_line_content.trim_end().ends_with(";") ||
-                              start_line_content.contains("::") ||
-                              start_line_content.trim_start().starts_with("fn ") ||
-                              start_line_content.contains("function ")))
+        && (start_line_content.contains("{")
+            || start_line_content.trim_end().ends_with(")")
+            || start_line_content.trim_end().ends_with(";")
+            || start_line_content.contains("::")
+            || start_line_content.trim_start().starts_with("fn ")
+            || start_line_content.contains("function ")))
         || start_line_content.contains("class ")
         || start_line_content.contains("struct ")
         || start_line_content.contains("interface ");
@@ -233,12 +233,11 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
             || line_text.contains("class ")
             || line_text.contains("struct ")
             || line_text.contains("interface ")
-            || (line_text.contains("::") && (
-                line_text.contains("(") ||
-                line_text.contains("already_AddRefed") ||
-                line_text.contains("RefPtr") ||
-                line_text.contains("nsCOMPtr")
-            ));
+            || (line_text.contains("::")
+                && (line_text.contains("(")
+                    || line_text.contains("already_AddRefed")
+                    || line_text.contains("RefPtr")
+                    || line_text.contains("nsCOMPtr")));
 
         looks_like_definition
     } else {

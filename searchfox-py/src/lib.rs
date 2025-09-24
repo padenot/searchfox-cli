@@ -62,7 +62,8 @@ impl SearchfoxClient {
 
         let client = self.inner.clone();
         let results = py.allow_threads(|| {
-            self.runtime.block_on(async move { client.search(&options).await })
+            self.runtime
+                .block_on(async move { client.search(&options).await })
         });
 
         match results {
@@ -79,8 +80,10 @@ impl SearchfoxClient {
 
     fn get_file(&self, py: Python<'_>, path: String) -> PyResult<String> {
         let client = self.inner.clone();
-        let result =
-            py.allow_threads(|| self.runtime.block_on(async move { client.get_file(&path).await }));
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.get_file(&path).await })
+        });
 
         match result {
             Ok(content) => Ok(content),
@@ -136,7 +139,9 @@ impl SearchfoxClient {
         });
 
         match result {
-            Ok(json) => Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string())),
+            Ok(json) => {
+                Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
+            }
             Err(e) => Err(PyException::new_err(format!(
                 "Call graph search failed: {}",
                 e

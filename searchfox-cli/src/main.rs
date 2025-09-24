@@ -1,9 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use log::error;
-use searchfox_lib::{
-    call_graph::CallGraphQuery, search::SearchOptions, SearchfoxClient,
-};
+use searchfox_lib::{call_graph::CallGraphQuery, search::SearchOptions, SearchfoxClient};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -201,8 +199,7 @@ async fn main() -> Result<()> {
     } else if let Some(path) = &args.get_file {
         let content = client.get_file(path).await?;
         print!("{}", content);
-    } else if args.calls_from.is_some() || args.calls_to.is_some() || args.calls_between.is_some()
-    {
+    } else if args.calls_from.is_some() || args.calls_to.is_some() || args.calls_between.is_some() {
         let query = CallGraphQuery {
             calls_from: args.calls_from,
             calls_to: args.calls_to,
