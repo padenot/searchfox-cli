@@ -12,6 +12,13 @@
 A command-line interface for searching Mozilla codebases using searchfox.org,
 written by and for Claude Code.
 
+## Architecture
+
+The project is structured as a Rust workspace with three crates:
+- `searchfox-lib` - Core library with searchfox API client
+- `searchfox-cli` - Command-line interface using the library
+- `searchfox-py` - Python bindings via PyO3
+
 ## Features
 
 - Search across multiple Mozilla repositories (mozilla-central, autoland, beta, release, ESR branches, comm-central)
@@ -27,11 +34,31 @@ written by and for Claude Code.
 
 ## Installation
 
+### CLI
 ```bash
-cargo install --path .
+cargo install --path searchfox-cli
 ```
 
-## Usage
+### Python Package
+```bash
+cd searchfox-py && maturin develop  # Development
+cd searchfox-py && maturin build --release  # Distribution wheel
+```
+
+## Python API
+
+```python
+import searchfox
+
+client = searchfox.SearchfoxClient("mozilla-central")
+results = client.search(query="AudioStream", limit=10)
+definition = client.get_definition("AudioContext::CreateGain")
+content = client.get_file("dom/media/AudioStream.h")
+```
+
+See `python/examples/` for complete examples including code analysis utilities.
+
+## CLI Usage
 
 ### Basic Search
 

@@ -1,0 +1,17 @@
+[package]
+name = "searchfox-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for searchfox.org API"
+
+[lib]
+name = "searchfox"
+crate-type = ["cdylib"]
+
+[dependencies]
+searchfox-lib = { path = "../searchfox-lib" }
+pyo3 = { workspace = true, features = ["extension-module"] }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }

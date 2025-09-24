@@ -1,0 +1,16 @@
+[package]
+name = "searchfox-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Library for searchfox.org API access"
+
+[dependencies]
+reqwest = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+regex = { workspace = true }
+scraper = { workspace = true }
+log = { workspace = true }
