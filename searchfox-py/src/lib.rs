@@ -46,6 +46,27 @@ impl SearchfoxClient {
         webidl: Option<bool>,
         js: Option<bool>,
     ) -> PyResult<Vec<(String, usize, String)>> {
+        // Check for expensive searches and warn
+        if symbol.is_none() && id.is_none() {
+            if let Some(q) = &query {
+                if !q.contains("symbol:") && !q.contains("id:") {
+                    eprintln!("⚠️  WARNING: Expensive full-text search detected in Python");
+                    eprintln!("Query '{}' doesn't use searchfox's optimized index", q);
+                    eprintln!("Recommendations:");
+                    eprintln!(
+                        "  • Use symbol='{}' or id='{}' parameters for indexed search",
+                        q, q
+                    );
+                    eprintln!("  • Use get_definition('{}') for complete definitions", q);
+                    eprintln!(
+                        "  • For local text search, use subprocess.run(['rg', '{}'])",
+                        q
+                    );
+                    eprintln!("Note for LLM tools: Prefer indexed searches over full-text");
+                }
+            }
+        }
+
         let options = SearchOptions {
             query,
             path,
@@ -147,6 +168,24 @@ impl SearchfoxClient {
                 "Call graph search failed: {}",
                 e
             ))),
+        }
+    }
+
+    fn is_expensive_search(
+        &self,
+        query: Option<String>,
+        symbol: Option<String>,
+        id: Option<String>,
+    ) -> bool {
+        // Check if this would be an expensive search
+        if symbol.is_some() || id.is_some() {
+            return false;
+        }
+
+        if let Some(q) = query {
+            !q.contains("symbol:") && !q.contains("id:")
+        } else {
+            false
         }
     }
 

@@ -153,6 +153,14 @@ struct Args {
         long_help = "Set the depth of traversal for call graph searches. Higher values show more indirect calls.\nExample: --depth 3"
     )]
     depth: u32,
+
+    #[arg(
+        long = "yes-i-know-i-want-to-do-it-anyway",
+        default_value_t = false,
+        help = "Override warning for expensive full-text searches",
+        long_help = "Skip the warning when doing expensive full-text searches that don't leverage searchfox's index.\nUse this when you know what you're doing and want to proceed with a bare text search."
+    )]
+    override_expensive_search: bool,
 }
 
 #[tokio::main]
@@ -228,6 +236,66 @@ async fn main() -> Result<()> {
         || args.id.is_some()
         || args.path.is_some()
     {
+        // Check if this is an expensive full-text search
+        if let Some(query) = &args.query {
+            // Only symbol: and id: use the optimized index
+            let is_expensive_search = !query.contains("symbol:")
+                && !query.contains("id:")
+                && args.symbol.is_none()
+                && args.id.is_none();
+
+            if is_expensive_search && !args.override_expensive_search {
+                eprintln!("⚠️  WARNING: Expensive Full-Text Search Detected");
+                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                eprintln!();
+                eprintln!(
+                    "You're about to perform a full-text search with query: '{}'",
+                    query
+                );
+                eprintln!();
+                eprintln!("This search:");
+                eprintln!("  • Does NOT use searchfox's optimized index (symbol: or id: queries)");
+                eprintln!("  • Is expensive server-side and may be slow");
+                eprintln!("  • Could be done more efficiently locally");
+                eprintln!();
+                eprintln!("Recommendations:");
+                eprintln!("  1. For local code: Use ripgrep (rg) instead:");
+                if let Some(path) = &args.path {
+                    if !path.is_empty() {
+                        eprintln!("     rg '{}' --glob '{}'", query, path);
+                    } else {
+                        eprintln!("     rg '{}'", query);
+                    }
+                } else {
+                    eprintln!("     rg '{}'", query);
+                }
+                eprintln!();
+                eprintln!("  2. For indexed searches that use searchfox's optimized index:");
+                eprintln!("     searchfox-cli --symbol '{}'", query);
+                eprintln!("     searchfox-cli --id '{}'", query);
+                eprintln!(
+                    "     searchfox-cli --define '{}'  # finds and shows full definition",
+                    query
+                );
+                eprintln!();
+                eprintln!("  3. To proceed anyway:");
+                eprintln!(
+                    "     searchfox-cli -q '{}' --yes-i-know-i-want-to-do-it-anyway",
+                    query
+                );
+                eprintln!();
+                eprintln!("📝 NOTE FOR LLM/AI TOOLS:");
+                eprintln!("If you're an LLM-based tool, you should:");
+                eprintln!("  • Use --symbol or --id for symbol searches (indexed)");
+                eprintln!("  • Use --define to get complete definitions (indexed)");
+                eprintln!("  • Use rg for text searches on local code");
+                eprintln!("  • Avoid full-text searches - they're expensive and slow");
+                eprintln!();
+                eprintln!("Exiting. Use --yes-i-know-i-want-to-do-it-anyway to override.");
+                std::process::exit(1);
+            }
+        }
+
         let results = client.search(&search_options).await?;
         let mut count = 0;
         for result in &results {

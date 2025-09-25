@@ -21,9 +21,9 @@ class MozillaCodeAnalyzer:
 
     def find_implementations(self, interface: str, limit: int = 20) -> List[Dict]:
         """Find all implementations of a given interface."""
-        # Search for class declarations that inherit from the interface
+        # Use indexed symbol search for the interface
         results = self.client.search(
-            query=f": public {interface}",
+            symbol=interface,
             cpp=True,
             limit=limit
         )
@@ -44,6 +44,8 @@ class MozillaCodeAnalyzer:
 
     def analyze_include_patterns(self, directory: str, limit: int = 100) -> Dict[str, int]:
         """Analyze include patterns in a directory."""
+        # Note: This is a text search, but limited to a specific directory
+        # For better performance, consider using local ripgrep
         results = self.client.search(
             query='#include',
             path=f"^{directory}",
@@ -63,21 +65,24 @@ class MozillaCodeAnalyzer:
 
     def find_method_calls(self, class_name: str, method_name: str, limit: int = 50) -> List[Tuple[str, int, str]]:
         """Find all calls to a specific method of a class."""
-        # Search for method calls in various patterns
-        patterns = [
-            f"{class_name}::{method_name}",  # Direct class method call
-            f"->{method_name}(",             # Pointer method call
-            f".{method_name}(",              # Object method call
-        ]
+        # Use indexed symbol search for the method
+        full_method = f"{class_name}::{method_name}"
+        results = self.client.search(
+            symbol=full_method,
+            cpp=True,
+            limit=limit
+        )
 
-        all_results = []
-        for pattern in patterns:
+        all_results = results
+
+        # If no results, try searching just for the method name
+        if not results:
             results = self.client.search(
-                query=pattern,
+                id=method_name,
                 cpp=True,
-                limit=limit // len(patterns)  # Distribute limit across patterns
+                limit=limit
             )
-            all_results.extend(results)
+            all_results = results
 
         # Remove duplicates
         seen = set()
@@ -112,8 +117,9 @@ class MozillaCodeAnalyzer:
 
     def analyze_api_usage(self, api_function: str) -> Dict:
         """Analyze how an API function is used across the codebase."""
+        # Use indexed symbol search for better performance
         results = self.client.search(
-            query=api_function,
+            symbol=api_function,
             limit=100
         )
 

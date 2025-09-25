@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Library for searchfox.org API access"
+repository = "https://github.com/padenot/searchfox-cli"
+homepage = "https://github.com/padenot/searchfox-cli"
 
 [dependencies]
 reqwest = { workspace = true }

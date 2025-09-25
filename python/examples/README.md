@@ -52,15 +52,31 @@ Features:
 - Analyze API usage patterns
 - Security pattern detection
 
+## Best Practices
+
+**Important:** Avoid expensive full-text searches. Use indexed searches instead:
+
+- ✅ **Good:** `search(symbol="AudioContext")` - Uses searchfox's index
+- ✅ **Good:** `search(id="main")` - Uses searchfox's index
+- ✅ **Good:** `get_definition("AudioContext::CreateGain")` - Uses index internally
+- ❌ **Bad:** `search(query="AudioContext")` - Expensive full-text search
+- ❌ **Bad:** `search(query="path:dom/media text")` - Still expensive
+
+For text searches in local code, use ripgrep via subprocess:
+```python
+import subprocess
+result = subprocess.run(['rg', 'pattern'], capture_output=True, text=True)
+```
+
 ## Quick Start Examples
 
-### Simple Search
+### Simple Indexed Search
 
 ```python
 import searchfox
 
-# Quick search
-results = searchfox.search(query="AudioContext", limit=5)
+# Use indexed symbol search (efficient)
+results = searchfox.search(symbol="AudioContext", limit=5)
 for path, line_num, line in results:
     print(f"{path}:{line_num}: {line}")
 ```
@@ -91,10 +107,10 @@ print(definition)
 ```python
 import searchfox
 
-# Search only in C++ files
+# Search only in C++ files (using indexed search)
 client = searchfox.SearchfoxClient("mozilla-central")
 results = client.search(
-    query="malloc",
+    symbol="malloc",
     cpp=True,
     path="^memory",
     limit=10
