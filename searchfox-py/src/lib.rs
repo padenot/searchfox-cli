@@ -29,6 +29,7 @@ impl SearchfoxClient {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search(
         &self,
         py: Python<'_>,

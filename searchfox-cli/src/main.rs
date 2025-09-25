@@ -215,8 +215,8 @@ async fn main() -> Result<()> {
         };
 
         let result = client.search_call_graph(&query).await?;
-        if result.as_object().map_or(false, |o| !o.is_empty())
-            || result.as_array().map_or(false, |a| !a.is_empty())
+        if result.as_object().is_some_and(|o| !o.is_empty())
+            || result.as_array().is_some_and(|a| !a.is_empty())
         {
             println!("Call graph results found!");
             println!("{}", serde_json::to_string_pretty(&result)?);

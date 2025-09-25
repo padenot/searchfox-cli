@@ -93,15 +93,11 @@ impl SearchOptions {
                 || q.contains("re:")
             {
                 q.clone()
+            } else if let Some(context) = self.context {
+                format!("context:{context} text:{q}")
             } else {
-                if let Some(context) = self.context {
-                    format!("context:{context} text:{q}")
-                } else {
-                    q.clone()
-                }
+                q.clone()
             }
-        } else if self.path.is_some() {
-            String::new()
         } else {
             String::new()
         }

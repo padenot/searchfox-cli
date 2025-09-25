@@ -38,12 +38,10 @@ impl SearchfoxClient {
                     } else {
                         None
                     }
+                } else if let Some(symbol) = symbol_name {
+                    find_symbol_in_local_content(&local_content, 1, symbol)
                 } else {
-                    if let Some(symbol) = symbol_name {
-                        find_symbol_in_local_content(&local_content, 1, symbol)
-                    } else {
-                        None
-                    }
+                    None
                 };
 
                 let final_line = actual_line.unwrap_or(line_number);

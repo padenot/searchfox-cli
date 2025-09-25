@@ -57,10 +57,10 @@ impl SearchfoxClient {
                         Ok(parsed_json) => {
                             let mut result = serde_json::json!({});
                             for (key, value) in &parsed_json {
-                                if !key.starts_with('*') {
-                                    if value.as_array().is_some() || value.as_object().is_some() {
-                                        result[key] = value.clone();
-                                    }
+                                if !key.starts_with('*')
+                                    && (value.as_array().is_some() || value.as_object().is_some())
+                                {
+                                    result[key] = value.clone();
                                 }
                             }
                             Ok(result)
