@@ -1,7 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use log::error;
-use searchfox_lib::{call_graph::CallGraphQuery, search::SearchOptions, SearchfoxClient};
+use searchfox_lib::{
+    call_graph::CallGraphQuery, search::SearchOptions, CategoryFilter, SearchfoxClient,
+};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -161,6 +163,41 @@ struct Args {
         long_help = "Skip the warning when doing expensive full-text searches that don't leverage searchfox's index.\nUse this when you know what you're doing and want to proceed with a bare text search."
     )]
     override_expensive_search: bool,
+
+    #[arg(
+        long = "exclude-tests",
+        help = "Exclude test files from results",
+        conflicts_with_all = ["only_tests", "only_generated", "only_normal"]
+    )]
+    exclude_tests: bool,
+
+    #[arg(
+        long = "exclude-generated",
+        help = "Exclude generated files from results",
+        conflicts_with_all = ["only_tests", "only_generated", "only_normal"]
+    )]
+    exclude_generated: bool,
+
+    #[arg(
+        long = "only-tests",
+        help = "Show only test files",
+        conflicts_with_all = ["exclude_tests", "exclude_generated", "only_generated", "only_normal"]
+    )]
+    only_tests: bool,
+
+    #[arg(
+        long = "only-generated",
+        help = "Show only generated files",
+        conflicts_with_all = ["exclude_tests", "exclude_generated", "only_tests", "only_normal"]
+    )]
+    only_generated: bool,
+
+    #[arg(
+        long = "only-normal",
+        help = "Show only normal (non-test, non-generated) files",
+        conflicts_with_all = ["exclude_tests", "exclude_generated", "only_tests", "only_generated"]
+    )]
+    only_normal: bool,
 }
 
 #[tokio::main]
@@ -182,6 +219,22 @@ async fn main() -> Result<()> {
         eprintln!("================================");
     }
 
+    let category_filter = if args.only_tests {
+        CategoryFilter::OnlyTests
+    } else if args.only_generated {
+        CategoryFilter::OnlyGenerated
+    } else if args.only_normal {
+        CategoryFilter::OnlyNormal
+    } else if args.exclude_tests && args.exclude_generated {
+        CategoryFilter::ExcludeTestsAndGenerated
+    } else if args.exclude_tests {
+        CategoryFilter::ExcludeTests
+    } else if args.exclude_generated {
+        CategoryFilter::ExcludeGenerated
+    } else {
+        CategoryFilter::All
+    };
+
     let search_options = SearchOptions {
         query: args.query.clone(),
         path: args.path.clone(),
@@ -195,6 +248,7 @@ async fn main() -> Result<()> {
         c_lang: args.c_lang,
         webidl: args.webidl,
         js: args.js,
+        category_filter,
     };
 
     if let Some(symbol) = &args.define {

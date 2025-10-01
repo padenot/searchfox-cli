@@ -4,6 +4,33 @@ use anyhow::Result;
 use log::{debug, warn};
 use reqwest::Url;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CategoryFilter {
+    All,
+    ExcludeTests,
+    ExcludeGenerated,
+    ExcludeTestsAndGenerated,
+    OnlyTests,
+    OnlyGenerated,
+    OnlyNormal,
+}
+
+impl CategoryFilter {
+    pub fn should_include(&self, category: &str) -> bool {
+        match self {
+            CategoryFilter::All => true,
+            CategoryFilter::ExcludeTests => category != "test",
+            CategoryFilter::ExcludeGenerated => category != "generated",
+            CategoryFilter::ExcludeTestsAndGenerated => {
+                category != "test" && category != "generated"
+            }
+            CategoryFilter::OnlyTests => category == "test",
+            CategoryFilter::OnlyGenerated => category == "generated",
+            CategoryFilter::OnlyNormal => category == "normal",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub query: Option<String>,
@@ -18,6 +45,7 @@ pub struct SearchOptions {
     pub c_lang: bool,
     pub webidl: bool,
     pub js: bool,
+    pub category_filter: CategoryFilter,
 }
 
 impl Default for SearchOptions {
@@ -35,6 +63,7 @@ impl Default for SearchOptions {
             c_lang: false,
             webidl: false,
             js: false,
+            category_filter: CategoryFilter::All,
         }
     }
 }
@@ -164,6 +193,10 @@ impl SearchfoxClient {
 
         for (key, value) in &json {
             if key.starts_with('*') {
+                continue;
+            }
+
+            if !options.category_filter.should_include(key) {
                 continue;
             }
 

@@ -80,6 +80,7 @@ impl SearchfoxClient {
             c_lang: c_lang.unwrap_or(false),
             webidl: webidl.unwrap_or(false),
             js: js.unwrap_or(false),
+            category_filter: searchfox_lib::CategoryFilter::All,
         };
 
         let client = self.inner.clone();

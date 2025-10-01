@@ -7,7 +7,7 @@ pub mod types;
 pub mod utils;
 
 pub use client::SearchfoxClient;
-pub use search::SearchOptions;
+pub use search::{CategoryFilter, SearchOptions};
 pub use types::*;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
