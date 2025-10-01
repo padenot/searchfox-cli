@@ -5,11 +5,15 @@ use searchfox_lib::{
     call_graph::CallGraphQuery, search::SearchOptions, CategoryFilter, SearchfoxClient,
 };
 
+mod config;
+use config::Config;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2"
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2",
+    after_help = "CONFIGURATION:\n  searchfox-cli reads configuration from a TOML file at:\n    Linux/BSD: ~/.config/searchfox-cli/config.toml\n    macOS:     ~/Library/Application Support/searchfox-cli/config.toml\n    Windows:   %APPDATA%\\searchfox-cli\\config.toml\n\n  Available configuration options:\n    allow_fulltext = true/false\n      If true, allows full-text searches without the warning prompt.\n      Equivalent to always passing --yes-i-know-i-want-to-do-it-anyway.\n      Default: false\n\n  Example config.toml:\n    allow_fulltext = true\n\n  Use --config-path to see the configuration file location on your system."
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -198,6 +202,12 @@ struct Args {
         conflicts_with_all = ["exclude_tests", "exclude_generated", "only_tests", "only_generated"]
     )]
     only_normal: bool,
+
+    #[arg(
+        long = "config-path",
+        help = "Print the configuration file path and exit"
+    )]
+    config_path: bool,
 }
 
 #[tokio::main]
@@ -208,6 +218,26 @@ async fn main() -> Result<()> {
     }
     builder.init();
     let args = Args::parse();
+
+    if args.config_path {
+        match Config::config_path() {
+            Ok(path) => {
+                println!("{}", path.display());
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error: Failed to determine config path: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let config = Config::load().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load config: {e}");
+        Config::default()
+    });
+
+    let allow_fulltext = args.override_expensive_search || config.allow_fulltext;
 
     let client = SearchfoxClient::new(args.repo.clone(), args.log_requests)?;
 
@@ -298,7 +328,7 @@ async fn main() -> Result<()> {
                 && args.symbol.is_none()
                 && args.id.is_none();
 
-            if is_expensive_search && !args.override_expensive_search {
+            if is_expensive_search && !allow_fulltext {
                 eprintln!("⚠️  WARNING: Expensive Full-Text Search Detected");
                 eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 eprintln!();
