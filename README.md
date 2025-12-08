@@ -409,14 +409,6 @@ searchfox-cli --log-requests --define 'AudioContext::CreateGain'
 searchfox-cli --log-requests -q AudioStream -l 10
 ```
 
-## Dependencies
-
-- [clap](https://crates.io/crates/clap) - Command line argument parsing
-- [reqwest](https://crates.io/crates/reqwest) - HTTP client
-- [tokio](https://crates.io/crates/tokio) - Async runtime
-- [serde](https://crates.io/crates/serde) - Serialization/deserialization
-- [anyhow](https://crates.io/crates/anyhow) - Error handling
-
 ## License
 
 Licensed under either of
