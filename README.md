@@ -9,54 +9,25 @@
 [![Dependencies](https://deps.rs/repo/github/padenot/searchfox-cli/status.svg)](https://deps.rs/repo/github/padenot/searchfox-cli)
 [![Downloads](https://img.shields.io/crates/d/searchfox-cli.svg)](https://crates.io/crates/searchfox-cli)
 
-A command-line interface for searching Mozilla codebases using searchfox.org,
-written by and for Claude Code.
+A command-line interface for searching Mozilla codebases using searchfox.org, written by and for Claude Code.
 
-## Architecture
-
-The project is structured as a Rust workspace with three crates:
-- `searchfox-lib` - Core library with searchfox API client
-- `searchfox-cli` - Command-line interface using the library
-- `searchfox-py` - Python bindings via PyO3
+Also available as a Rust library (`searchfox-lib`) and Python package (`searchfox-py`).
 
 ## Features
 
 - Search across multiple Mozilla repositories (mozilla-central, autoland, beta, release, ESR branches, comm-central)
-- Support for regular expressions and case-sensitive search
-- Filter results by file path patterns (or search for files by path alone)
-- **Language filtering**: Filter results by programming language (C++, C, WebIDL, JavaScript)
-- Fetch and display file contents directly from GitHub
-- **Complete function and class extraction**: Intelligently extracts entire method/function bodies and class definitions with brace matching
-- **Symbol search**: Uses searchfox's native symbol indexing for precise symbol lookups
-- **Advanced definition finding**: Uses searchfox's structured data for reliable symbol resolution, prioritizes class definitions
-- **Request logging**: Detailed HTTP request timing and performance analysis
-- Configurable result limits
+- Symbol search using searchfox's native indexing for precise lookups
+- Advanced definition finding with complete function/class extraction using intelligent brace matching
+- **Call graph analysis**: Understand code flow with `calls-from`, `calls-to`, and `calls-between` queries (LLM-friendly markdown output)
+- Language filtering (C++, C, WebIDL, JavaScript)
+- Path patterns and regular expressions
+- Request logging for performance analysis
 
 ## Installation
 
-### CLI
 ```bash
-cargo install --path searchfox-cli
+cargo install searchfox-cli
 ```
-
-### Python Package
-```bash
-cd searchfox-py && maturin develop  # Development
-cd searchfox-py && maturin build --release  # Distribution wheel
-```
-
-## Python API
-
-```python
-import searchfox
-
-client = searchfox.SearchfoxClient("mozilla-central")
-results = client.search(query="AudioStream", limit=10)
-definition = client.get_definition("AudioContext::CreateGain")
-content = client.get_file("dom/media/AudioStream.h")
-```
-
-See `python/examples/` for complete examples including code analysis utilities.
 
 ## CLI Usage
 
@@ -283,42 +254,6 @@ $ searchfox-cli --define 'AudioContext::AudioContext'
 - **Safety limits**: Truncates extremely long definitions (>200 lines) to prevent output overflow
 - **Accurate parsing**: Correctly handles nested braces, escape sequences, and comment blocks
 
-### Request Logging and Performance Analysis
-
-The `--log-requests` flag enables comprehensive HTTP request logging for performance analysis and infrastructure planning:
-
-```bash
-# Enable detailed request logging
-searchfox-cli --log-requests --define 'AudioContext::CreateGain'
-```
-
-**Features:**
-- **Baseline latency measurement**: HTTP HEAD request to searchfox.org for baseline timing
-- **Request tracking**: Each HTTP request gets a unique ID for correlation  
-- **Detailed timing**: Start/end timestamps with duration in milliseconds
-- **Response metrics**: HTTP status codes and response size in bytes
-- **Performance insights**: Compare request times against baseline to identify bottlenecks
-
-**Example output:**
-```bash
-=== REQUEST LOGGING ENABLED ===
-[PING] Testing network latency to searchfox.org (ICMP ping disabled, using HTTP HEAD)...
-[PING] HTTP HEAD latency: 573ms (HTTP 200 OK)
-[PING] Note: This includes minimal server processing time, not just network latency
-================================
-
-[REQ-1] GET https://searchfox.org/mozilla-central/search?q=AudioContext%3A%3ACreateGain - START
-[REQ-1] GET https://searchfox.org/mozilla-central/search?q=AudioContext%3A%3ACreateGain - END (573ms, 1188 bytes, HTTP 200)
-[REQ-2] GET https://raw.githubusercontent.com/mozilla/firefox/main/dom/media/webaudio/AudioContext.cpp - START  
-[REQ-2] GET https://raw.githubusercontent.com/mozilla/firefox/main/dom/media/webaudio/AudioContext.cpp - END (172ms, 44915 bytes, HTTP 200)
-```
-
-**Performance analysis insights:**
-- **Network vs. server processing**: Compare request duration against baseline latency
-- **Service comparison**: GitHub file fetching vs. searchfox API performance
-- **Infrastructure planning**: Determine if searchfox server upgrades would help vs. network optimization
-- **Request patterns**: Track multiple requests to identify consistency and variation
-
 ### File Retrieval
 
 ```bash
@@ -355,6 +290,32 @@ searchfox-cli --get-file dom/media/AudioStream.h
 - `--c` - Filter results to C files only (.c, .h)
 - `--webidl` - Filter results to WebIDL files only (.webidl)
 - `--js` - Filter results to JavaScript files only (.js, .mjs, .ts, .cjs, .jsx, .tsx)
+- `--calls-from <SYMBOL>` - Show what functions are called by the specified symbol
+- `--calls-to <SYMBOL>` - Show what functions call the specified symbol
+- `--calls-between <SOURCE,TARGET>` - Show direct calls from source class/namespace to target class/namespace
+- `--depth <N>` - Set traversal depth for call graph searches (default: 1)
+
+### Call Graph Analysis
+
+Understand code flow and dependencies with LLM-friendly markdown output:
+
+```bash
+# What does a function call?
+searchfox-cli --calls-from 'mozilla::AudioCallbackDriver::DataCallback'
+
+# What calls this function?
+searchfox-cli --calls-to 'mozilla::AudioCallbackDriver::Start'
+
+# How do two classes interact?
+searchfox-cli --calls-between 'mozilla::dom::AudioContext,mozilla::MediaTrackGraph' --depth 2
+```
+
+**Output features:**
+- Results grouped by parent class/namespace
+- Both definition and declaration locations shown
+- Overloaded functions collapsed with all variants listed
+- Mangled symbols included for subsequent queries
+- Direct call edges (for `calls-between`)
 
 ## Examples
 
@@ -408,6 +369,33 @@ searchfox-cli -q 're:AudioContext::.*Create'
 searchfox-cli --log-requests --define 'AudioContext::CreateGain'
 searchfox-cli --log-requests -q AudioStream -l 10
 ```
+
+### Request Logging
+
+```bash
+searchfox-cli --log-requests --define 'AudioContext::CreateGain'
+```
+
+Shows HTTP request timing, response sizes, and baseline latency for performance analysis.
+
+## Python API
+
+```python
+import searchfox
+
+client = searchfox.SearchfoxClient("mozilla-central")
+results = client.search(query="AudioStream", limit=10)
+definition = client.get_definition("AudioContext::CreateGain")
+content = client.get_file("dom/media/AudioStream.h")
+```
+
+**Installation:**
+```bash
+cd searchfox-py && maturin develop  # Development
+cd searchfox-py && maturin build --release  # Distribution wheel
+```
+
+See `python/examples/` for complete examples.
 
 ## License
 
