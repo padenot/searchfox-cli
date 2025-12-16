@@ -2,7 +2,10 @@ use anyhow::Result;
 use clap::Parser;
 use log::error;
 use searchfox_lib::{
-    call_graph::CallGraphQuery, search::SearchOptions, CategoryFilter, SearchfoxClient,
+    call_graph::{format_call_graph_markdown, CallGraphQuery},
+    search::SearchOptions,
+    CategoryFilter,
+    SearchfoxClient,
 };
 
 mod config;
@@ -154,9 +157,9 @@ struct Args {
 
     #[arg(
         long = "depth",
-        default_value_t = 2,
+        default_value_t = 1,
         help = "Set traversal depth for call graph searches",
-        long_help = "Set the depth of traversal for call graph searches. Higher values show more indirect calls.\nExample: --depth 3"
+        long_help = "Set the depth of traversal for call graph searches. Higher values show more indirect calls.\nDefault is 1. Example: --depth 3"
     )]
     depth: u32,
 
@@ -292,6 +295,26 @@ async fn main() -> Result<()> {
         let content = client.get_file(path).await?;
         print!("{}", content);
     } else if args.calls_from.is_some() || args.calls_to.is_some() || args.calls_between.is_some() {
+        let query_text = if let Some(ref symbol) = args.calls_from {
+            format!("calls-from:'{}' depth:{}", symbol, args.depth)
+        } else if let Some(ref symbol) = args.calls_to {
+            format!("calls-to:'{}' depth:{}", symbol, args.depth)
+        } else if let Some(ref between) = args.calls_between {
+            let parts: Vec<&str> = between.split(',').collect();
+            if parts.len() == 2 {
+                format!(
+                    "calls-between-source:'{}' calls-between-target:'{}' depth:{}",
+                    parts[0].trim(),
+                    parts[1].trim(),
+                    args.depth
+                )
+            } else {
+                format!("calls-between:'{}' depth:{}", between, args.depth)
+            }
+        } else {
+            String::from("call-graph query")
+        };
+
         let query = CallGraphQuery {
             calls_from: args.calls_from,
             calls_to: args.calls_to,
@@ -310,8 +333,12 @@ async fn main() -> Result<()> {
         if result.as_object().is_some_and(|o| !o.is_empty())
             || result.as_array().is_some_and(|a| !a.is_empty())
         {
-            println!("Call graph results found!");
-            println!("{}", serde_json::to_string_pretty(&result)?);
+            if std::env::var("DEBUG_JSON").is_ok() {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let markdown = format_call_graph_markdown(&query_text, &result);
+                print!("{}", markdown);
+            }
         } else {
             println!("No call graph results found for the query.");
         }
