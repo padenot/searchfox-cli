@@ -1,3 +1,5 @@
+#![allow(non_local_definitions)]
+
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use searchfox_lib::{

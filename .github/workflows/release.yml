@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
 jobs:
   create-release:
@@ -67,6 +68,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          workspaces: |
+            . -> target
 
       - name: Install cross-compilation tools
         if: matrix.target == 'aarch64-unknown-linux-gnu'
