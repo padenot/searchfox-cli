@@ -81,10 +81,9 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p searchfox-cli --exclude searchfox-py
+        run: cargo build --release --target ${{ matrix.target }} --workspace --exclude searchfox-py
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
