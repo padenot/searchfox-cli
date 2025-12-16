@@ -7,6 +7,11 @@ description = "CLI for https://searchfox.org"
 repository = "https://github.com/padenot/searchfox-cli"
 homepage = "https://github.com/padenot/searchfox-cli"
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.{ archive-format }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
 [[bin]]
 name = "searchfox-cli"
 path = "src/main.rs"
