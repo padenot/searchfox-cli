@@ -20,7 +20,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
     let is_calls_between = query_text.contains("calls-between");
 
     if is_calls_between {
-        if let Some(hierarchical_graphs) = json.get("hierarchicalGraphs").and_then(|v| v.as_array()) {
+        if let Some(hierarchical_graphs) = json.get("hierarchicalGraphs").and_then(|v| v.as_array())
+        {
             let jumprefs = json.get("jumprefs").and_then(|v| v.as_object());
 
             let mut all_edges = Vec::new();
@@ -56,7 +57,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
 
                 for (from_sym, to_sym) in all_edges {
                     let from_pretty = if let Some(jumprefs) = jumprefs {
-                        jumprefs.get(&from_sym)
+                        jumprefs
+                            .get(&from_sym)
                             .and_then(|s| s.get("pretty"))
                             .and_then(|p| p.as_str())
                             .unwrap_or(&from_sym)
@@ -65,7 +67,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                     };
 
                     let from_location = if let Some(jumprefs) = jumprefs {
-                        jumprefs.get(&from_sym)
+                        jumprefs
+                            .get(&from_sym)
                             .and_then(|s| s.get("jumps"))
                             .and_then(|j| j.get("def"))
                             .and_then(|d| d.as_str())
@@ -75,7 +78,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                     };
 
                     let to_pretty = if let Some(jumprefs) = jumprefs {
-                        jumprefs.get(&to_sym)
+                        jumprefs
+                            .get(&to_sym)
                             .and_then(|s| s.get("pretty"))
                             .and_then(|p| p.as_str())
                             .unwrap_or(&to_sym)
@@ -84,7 +88,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                     };
 
                     let to_location = if let Some(jumprefs) = jumprefs {
-                        jumprefs.get(&to_sym)
+                        jumprefs
+                            .get(&to_sym)
                             .and_then(|s| s.get("jumps"))
                             .and_then(|j| j.get("def"))
                             .and_then(|d| d.as_str())
@@ -93,8 +98,10 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                         ""
                     };
 
-                    output.push_str(&format!("- **{}** ({}) calls **{}** ({})\n",
-                        from_pretty, from_location, to_pretty, to_location));
+                    output.push_str(&format!(
+                        "- **{}** ({}) calls **{}** ({})\n",
+                        from_pretty, from_location, to_pretty, to_location
+                    ));
                     output.push_str(&format!("  - From: `{}`\n", from_sym));
                     output.push_str(&format!("  - To: `{}`\n", to_sym));
                 }
@@ -104,7 +111,8 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
         }
     }
 
-    let mut grouped_by_parent: BTreeMap<String, BTreeSet<(String, String, String, String)>> = BTreeMap::new();
+    let mut grouped_by_parent: BTreeMap<String, BTreeSet<(String, String, String, String)>> =
+        BTreeMap::new();
 
     let jumprefs = json.get("jumprefs").and_then(|v| v.as_object());
 
@@ -144,7 +152,10 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
 
-                                let location = if !def_location.is_empty() && !decl_location.is_empty() && def_location != decl_location {
+                                let location = if !def_location.is_empty()
+                                    && !decl_location.is_empty()
+                                    && def_location != decl_location
+                                {
                                     format!("{} (decl: {})", def_location, decl_location)
                                 } else if !def_location.is_empty() {
                                     def_location.to_string()
@@ -160,18 +171,13 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("Free functions");
 
-                                let parent_sym_clean = if parent_sym.starts_with("T_") {
-                                    &parent_sym[2..]
-                                } else if parent_sym == "Free functions" {
-                                    parent_sym
-                                } else {
-                                    parent_sym
-                                };
+                                let parent_sym_clean =
+                                    parent_sym.strip_prefix("T_").unwrap_or(parent_sym);
 
                                 if !pretty_name.is_empty() && !location.is_empty() {
                                     grouped_by_parent
                                         .entry(parent_sym_clean.to_string())
-                                        .or_insert_with(BTreeSet::new)
+                                        .or_default()
                                         .insert((
                                             pretty_name.to_string(),
                                             mangled.to_string(),
@@ -205,9 +211,16 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
         for (pretty_name, overloads) in grouped_items {
             if overloads.len() == 1 {
                 let (mangled, location) = &overloads[0];
-                output.push_str(&format!("- {} (`{}`, {})\n", pretty_name, mangled, location));
+                output.push_str(&format!(
+                    "- {} (`{}`, {})\n",
+                    pretty_name, mangled, location
+                ));
             } else {
-                output.push_str(&format!("- {} ({} overloads)\n", pretty_name, overloads.len()));
+                output.push_str(&format!(
+                    "- {} ({} overloads)\n",
+                    pretty_name,
+                    overloads.len()
+                ));
                 for (mangled, location) in overloads {
                     output.push_str(&format!("  - `{}`, {}\n", mangled, location));
                 }

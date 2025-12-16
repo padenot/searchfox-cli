@@ -11,8 +11,7 @@ pub struct Config {
 
 impl Config {
     pub fn config_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir()
-            .context("Could not determine config directory")?;
+        let config_dir = dirs::config_dir().context("Could not determine config directory")?;
         Ok(config_dir.join("searchfox-cli").join("config.toml"))
     }
 
@@ -32,16 +31,17 @@ impl Config {
         Ok(config)
     }
 
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
 
-        let contents = toml::to_string_pretty(self)
-            .context("Failed to serialize config")?;
+        let contents = toml::to_string_pretty(self).context("Failed to serialize config")?;
 
         fs::write(&path, contents)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;

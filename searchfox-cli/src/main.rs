@@ -4,8 +4,7 @@ use log::error;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
     search::SearchOptions,
-    CategoryFilter,
-    SearchfoxClient,
+    CategoryFilter, SearchfoxClient,
 };
 
 mod config;
