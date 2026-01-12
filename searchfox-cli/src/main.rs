@@ -7,15 +7,11 @@ use searchfox_lib::{
     CategoryFilter, SearchfoxClient,
 };
 
-mod config;
-use config::Config;
-
 #[derive(Parser, Debug)]
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2",
-    after_help = "CONFIGURATION:\n  searchfox-cli reads configuration from a TOML file at:\n    Linux/BSD: ~/.config/searchfox-cli/config.toml\n    macOS:     ~/Library/Application Support/searchfox-cli/config.toml\n    Windows:   %APPDATA%\\searchfox-cli\\config.toml\n\n  Available configuration options:\n    allow_fulltext = true/false\n      If true, allows full-text searches without the warning prompt.\n      Equivalent to always passing --yes-i-know-i-want-to-do-it-anyway.\n      Default: false\n\n  Example config.toml:\n    allow_fulltext = true\n\n  Use --config-path to see the configuration file location on your system."
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2"
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -163,14 +159,6 @@ struct Args {
     depth: u32,
 
     #[arg(
-        long = "yes-i-know-i-want-to-do-it-anyway",
-        default_value_t = false,
-        help = "Override warning for expensive full-text searches",
-        long_help = "Skip the warning when doing expensive full-text searches that don't leverage searchfox's index.\nUse this when you know what you're doing and want to proceed with a bare text search."
-    )]
-    override_expensive_search: bool,
-
-    #[arg(
         long = "exclude-tests",
         help = "Exclude test files from results",
         conflicts_with_all = ["only_tests", "only_generated", "only_normal"]
@@ -204,12 +192,6 @@ struct Args {
         conflicts_with_all = ["exclude_tests", "exclude_generated", "only_tests", "only_generated"]
     )]
     only_normal: bool,
-
-    #[arg(
-        long = "config-path",
-        help = "Print the configuration file path and exit"
-    )]
-    config_path: bool,
 }
 
 #[tokio::main]
@@ -220,26 +202,6 @@ async fn main() -> Result<()> {
     }
     builder.init();
     let args = Args::parse();
-
-    if args.config_path {
-        match Config::config_path() {
-            Ok(path) => {
-                println!("{}", path.display());
-                std::process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("Error: Failed to determine config path: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    let config = Config::load().unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to load config: {e}");
-        Config::default()
-    });
-
-    let allow_fulltext = args.override_expensive_search || config.allow_fulltext;
 
     let client = SearchfoxClient::new(args.repo.clone(), args.log_requests)?;
 
@@ -346,66 +308,6 @@ async fn main() -> Result<()> {
         || args.id.is_some()
         || args.path.is_some()
     {
-        // Check if this is an expensive full-text search
-        if let Some(query) = &args.query {
-            // Only symbol: and id: use the optimized index
-            let is_expensive_search = !query.contains("symbol:")
-                && !query.contains("id:")
-                && args.symbol.is_none()
-                && args.id.is_none();
-
-            if is_expensive_search && !allow_fulltext {
-                eprintln!("⚠️  WARNING: Expensive Full-Text Search Detected");
-                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                eprintln!();
-                eprintln!(
-                    "You're about to perform a full-text search with query: '{}'",
-                    query
-                );
-                eprintln!();
-                eprintln!("This search:");
-                eprintln!("  • Does NOT use searchfox's optimized index (symbol: or id: queries)");
-                eprintln!("  • Is expensive server-side and may be slow");
-                eprintln!("  • Could be done more efficiently locally");
-                eprintln!();
-                eprintln!("Recommendations:");
-                eprintln!("  1. For local code: Use ripgrep (rg) instead:");
-                if let Some(path) = &args.path {
-                    if !path.is_empty() {
-                        eprintln!("     rg '{}' --glob '{}'", query, path);
-                    } else {
-                        eprintln!("     rg '{}'", query);
-                    }
-                } else {
-                    eprintln!("     rg '{}'", query);
-                }
-                eprintln!();
-                eprintln!("  2. For indexed searches that use searchfox's optimized index:");
-                eprintln!("     searchfox-cli --symbol '{}'", query);
-                eprintln!("     searchfox-cli --id '{}'", query);
-                eprintln!(
-                    "     searchfox-cli --define '{}'  # finds and shows full definition",
-                    query
-                );
-                eprintln!();
-                eprintln!("  3. To proceed anyway:");
-                eprintln!(
-                    "     searchfox-cli -q '{}' --yes-i-know-i-want-to-do-it-anyway",
-                    query
-                );
-                eprintln!();
-                eprintln!("📝 NOTE FOR LLM/AI TOOLS:");
-                eprintln!("If you're an LLM-based tool, you should:");
-                eprintln!("  • Use --symbol or --id for symbol searches (indexed)");
-                eprintln!("  • Use --define to get complete definitions (indexed)");
-                eprintln!("  • Use rg for text searches on local code");
-                eprintln!("  • Avoid full-text searches - they're expensive and slow");
-                eprintln!();
-                eprintln!("Exiting. Use --yes-i-know-i-want-to-do-it-anyway to override.");
-                std::process::exit(1);
-            }
-        }
-
         let results = client.search(&search_options).await?;
         let mut count = 0;
         for result in &results {

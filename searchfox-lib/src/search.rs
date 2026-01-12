@@ -69,21 +69,6 @@ impl Default for SearchOptions {
 }
 
 impl SearchOptions {
-    /// Check if this search is expensive (doesn't use searchfox's index)
-    pub fn is_expensive_search(&self) -> bool {
-        // Only symbol: and id: prefixes use the optimized index
-        if self.symbol.is_some() || self.id.is_some() {
-            return false;
-        }
-
-        if let Some(query) = &self.query {
-            // Check if query contains indexed prefixes
-            !query.contains("symbol:") && !query.contains("id:")
-        } else {
-            false
-        }
-    }
-
     pub fn matches_language_filter(&self, path: &str) -> bool {
         if !self.cpp && !self.c_lang && !self.webidl && !self.js {
             return true;
@@ -155,18 +140,6 @@ pub struct SearchResult {
 }
 
 impl SearchfoxClient {
-    /// Warns about expensive searches to stderr (for library users)
-    pub fn warn_if_expensive_search(&self, options: &SearchOptions) {
-        if options.is_expensive_search() {
-            if let Some(query) = &options.query {
-                eprintln!("⚠️  WARNING: Expensive full-text search detected");
-                eprintln!("Query '{}' doesn't use searchfox's optimized index", query);
-                eprintln!("Consider using symbol: or id: prefixes, or use ripgrep locally");
-                eprintln!("For LLM tools: Use find_and_display_definition() for definitions");
-            }
-        }
-    }
-
     pub async fn search(&self, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         let query = options.build_query();
 

@@ -17,13 +17,10 @@ name = "searchfox-cli"
 path = "src/main.rs"
 
 [dependencies]
-searchfox-lib = { version = "0.5.1", path = "../searchfox-lib" }
+searchfox-lib = { version = "0.6.0", path = "../searchfox-lib" }
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
-serde = { workspace = true }
-toml = "0.8"
-dirs = "5.0"

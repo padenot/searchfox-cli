@@ -24,18 +24,18 @@ def main():
     # Create a client for mozilla-central repository
     client = searchfox.SearchfoxClient("mozilla-central")
 
-    # Example 1: Indexed symbol search (efficient)
-    separator("Indexed Symbol Search: Find AudioContext symbols")
-    results = client.search(symbol="AudioContext", limit=5)
+    # Example 1: Basic search
+    separator("Basic Search: Find AudioContext references")
+    results = client.search(query="AudioContext", limit=5)
     for path, line_num, line in results:
         print(f"{path}:{line_num}: {line}")
     print(f"Found {len(results)} results")
 
-    # Example 2: Language-filtered indexed search
-    separator("C++ Only Search: AudioNode symbols in dom/media")
+    # Example 2: Language-filtered search
+    separator("C++ Only Search: AudioNode in dom/media")
     results = client.search(
-        symbol="AudioNode",
-        path="^dom/media/webaudio",
+        query="AudioNode",
+        path="^dom/media",
         cpp=True,
         limit=3
     )
@@ -74,9 +74,9 @@ def main():
     # Example 6: Using convenience functions
     separator("Convenience Functions")
 
-    # Quick indexed search
-    print("\nQuick indexed search for 'malloc' symbol in C files:")
-    results = searchfox.search(symbol="malloc", c_lang=True, limit=3)
+    # Quick search
+    print("\nQuick search for 'malloc' in C files:")
+    results = searchfox.search(query="malloc", c_lang=True, limit=3)
     for path, line_num, line in results[:3]:
         print(f"  {path}:{line_num}")
 
@@ -119,16 +119,16 @@ def main():
     for path, line_num, line in results:
         print(f"{path}:{line_num}: {line}")
 
-    # Example 9: Indexed identifier search
-    separator("Indexed ID Search: Exact identifier 'CreateGain'")
+    # Example 9: Regex search
+    separator("Regex Search: Methods starting with 'Create'")
     results = client.search(
-        id="CreateGain",
+        query="^Create",
+        regexp=True,
         path="dom/media",
         limit=5
     )
     for path, line_num, line in results:
-        if "Create" in line:  # Filter to actual matches
-            print(f"{path}:{line_num}: {line.strip()}")
+        print(f"{path}:{line_num}: {line}")
 
     # Example 10: Performance monitoring
     separator("Performance: Measure search latency")
@@ -137,8 +137,8 @@ def main():
     latency = client_with_logging.ping()
     print(f"Baseline latency: {latency:.3f} seconds")
 
-    print("\nSearching with request logging enabled (using indexed search)...")
-    results = client_with_logging.search(symbol="test", limit=1)
+    print("\nSearching with request logging enabled...")
+    results = client_with_logging.search(query="test", limit=1)
     print(f"Search completed, found {len(results)} results")
 
 
@@ -149,10 +149,11 @@ def advanced_example():
 
     client = searchfox.SearchfoxClient("mozilla-central")
 
-    # Find AudioNode symbol definitions
-    print("\nFinding AudioNode symbol definitions...")
+    # Find all AudioNode subclasses
+    print("\nFinding AudioNode subclasses...")
     results = client.search(
-        symbol="AudioNode",
+        query="class .* : public AudioNode",
+        regexp=True,
         cpp=True,
         limit=10
     )
