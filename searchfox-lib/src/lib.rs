@@ -1,3 +1,4 @@
+pub mod blame;
 pub mod call_graph;
 pub mod client;
 pub mod definition;
@@ -6,6 +7,7 @@ pub mod search;
 pub mod types;
 pub mod utils;
 
+pub use blame::parse_commit_header;
 pub use client::SearchfoxClient;
 pub use search::{CategoryFilter, SearchOptions};
 pub use types::*;
