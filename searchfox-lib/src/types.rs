@@ -41,3 +41,28 @@ pub struct ResponseLog {
     pub size_bytes: usize,
     pub duration: std::time::Duration,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CommitInfo {
+    pub header: String,
+    pub parent: Option<String>,
+    pub date: String,
+    pub fulldiff: Option<String>,
+    pub phab: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlameInfo {
+    pub commit_hash: String,
+    pub original_path: String,
+    pub original_line: usize,
+    pub commit_info: Option<CommitInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsedCommitInfo {
+    pub bug_number: Option<u64>,
+    pub message: String,
+    pub author: String,
+    pub date: String,
+}
