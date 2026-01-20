@@ -3,9 +3,11 @@ use clap::Parser;
 use log::error;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
+    parse_commit_header,
     search::SearchOptions,
     CategoryFilter, SearchfoxClient,
 };
+use std::collections::HashMap;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -65,6 +67,13 @@ struct Args {
         long_help = "Fetch and display the contents of a specific file from the repository.\nProvide the file path relative to the repository root.\nExample: --get-file dom/media/AudioStream.h"
     )]
     get_file: Option<String>,
+
+    #[arg(
+        long,
+        help = "Line range for --get-file (e.g., 10-20, 10, 10-)",
+        long_help = "Specify line range when using --get-file.\nFormats:\n  --lines 10-20  (lines 10 through 20)\n  --lines 10     (just line 10)\n  --lines 10-    (from line 10 to end)\n  --lines -20    (from start to line 20)\nExample: --get-file dom/media/AudioStream.h --lines 100-150"
+    )]
+    lines: Option<String>,
 
     #[arg(
         long,
@@ -192,6 +201,14 @@ struct Args {
         conflicts_with_all = ["exclude_tests", "exclude_generated", "only_tests", "only_generated"]
     )]
     only_normal: bool,
+
+    #[arg(
+        long = "blame",
+        default_value_t = false,
+        help = "Show blame/history info for results",
+        long_help = "Augment query results with blame information.\nShows commit hash, author, date, and bug for each result line.\nWorks with --define, --symbol, -q, --get-file, etc."
+    )]
+    blame: bool,
 }
 
 #[tokio::main]
@@ -250,11 +267,77 @@ async fn main() -> Result<()> {
             .find_and_display_definition(symbol, args.path.as_deref(), &search_options)
             .await?;
         if !result.is_empty() {
-            println!("{}", result);
+            if args.blame {
+                // First, get the file path from the result by finding the symbol location
+                let file_locations = client
+                    .find_symbol_locations(symbol, args.path.as_deref(), &search_options)
+                    .await?;
+
+                if let Some((file_path, _)) = file_locations.first() {
+                    // Parse the result to extract line numbers
+                    let line_numbers = extract_line_numbers_from_definition(&result);
+
+                    if !line_numbers.is_empty() {
+                        // Fetch blame info
+                        let blame_map =
+                            client.get_blame_for_lines(file_path, &line_numbers).await?;
+
+                        // Output with grouped blame
+                        print_definition_with_grouped_blame(&result, &blame_map);
+                    } else {
+                        println!("{}", result);
+                    }
+                } else {
+                    println!("{}", result);
+                }
+            } else {
+                println!("{}", result);
+            }
         }
     } else if let Some(path) = &args.get_file {
         let content = client.get_file(path).await?;
-        print!("{}", content);
+
+        // Parse line range if provided
+        let (start_line, end_line) = if let Some(ref range) = args.lines {
+            parse_line_range(range, content.lines().count())?
+        } else {
+            (1, content.lines().count())
+        };
+
+        // Filter content to the specified range
+        let filtered_lines: Vec<(usize, &str)> = content
+            .lines()
+            .enumerate()
+            .map(|(idx, line)| (idx + 1, line))
+            .filter(|(line_num, _)| *line_num >= start_line && *line_num <= end_line)
+            .collect();
+
+        if args.blame {
+            // Get line numbers for the filtered range
+            let line_numbers: Vec<usize> = filtered_lines.iter().map(|(num, _)| *num).collect();
+
+            // Fetch blame for the range
+            let blame_map = client.get_blame_for_lines(path, &line_numbers).await?;
+
+            // Format content with line numbers (using consistent spacing like --define)
+            let mut formatted_content = String::new();
+            for (line_num, line) in filtered_lines {
+                formatted_content.push_str(&format!("    {:4}: {}\n", line_num, line));
+            }
+
+            // Print with grouped blame
+            print_definition_with_grouped_blame(&formatted_content, &blame_map);
+        } else {
+            for (line_num, line) in filtered_lines {
+                if args.lines.is_some() {
+                    // Show line numbers when range is specified
+                    println!("{:4}: {}", line_num, line);
+                } else {
+                    // Original behavior without line numbers
+                    println!("{}", line);
+                }
+            }
+        }
     } else if args.calls_from.is_some() || args.calls_to.is_some() || args.calls_between.is_some() {
         let query_text = if let Some(ref symbol) = args.calls_from {
             format!("calls-from:'{}' depth:{}", symbol, args.depth)
@@ -310,13 +393,57 @@ async fn main() -> Result<()> {
     {
         let results = client.search(&search_options).await?;
         let mut count = 0;
-        for result in &results {
-            if result.line_number == 0 {
-                println!("{}", result.path);
-            } else {
-                println!("{}:{}: {}", result.path, result.line_number, result.line);
+
+        if args.blame {
+            // Group results by file for efficient blame fetching
+            let mut results_by_file: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+            for result in &results {
+                if result.line_number > 0 {
+                    results_by_file
+                        .entry(result.path.clone())
+                        .or_default()
+                        .push((result.line_number, result.line.clone()));
+                }
             }
-            count += 1;
+
+            // Fetch and display results with blame
+            for (path, lines) in results_by_file {
+                let line_numbers: Vec<usize> = lines.iter().map(|(ln, _)| *ln).collect();
+                let blame_map = client.get_blame_for_lines(&path, &line_numbers).await?;
+
+                for (line_number, line_text) in lines {
+                    println!("{}:{}: {}", path, line_number, line_text);
+
+                    if let Some(blame_info) = blame_map.get(&line_number) {
+                        if let Some(ref commit_info) = blame_info.commit_info {
+                            let parsed = parse_commit_header(&commit_info.header);
+                            let short_hash = &blame_info.commit_hash[..8];
+                            if let Some(bug) = parsed.bug_number {
+                                println!(
+                                    "  [{}] Bug {}: {} ({}, {})",
+                                    short_hash, bug, parsed.message, parsed.author, parsed.date
+                                );
+                            } else {
+                                println!(
+                                    "  [{}] {} ({}, {})",
+                                    short_hash, parsed.message, parsed.author, parsed.date
+                                );
+                            }
+                        }
+                    }
+                    count += 1;
+                }
+            }
+        } else {
+            // Original output without blame
+            for result in &results {
+                if result.line_number == 0 {
+                    println!("{}", result.path);
+                } else {
+                    println!("{}:{}: {}", result.path, result.line_number, result.line);
+                }
+                count += 1;
+            }
         }
         println!("Total matches: {count}");
     } else {
@@ -327,4 +454,204 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Extract line numbers from definition output
+/// Lines are formatted like ">>> 469: code" or "   470: code"
+fn extract_line_numbers_from_definition(output: &str) -> Vec<usize> {
+    output
+        .lines()
+        .filter_map(|line| {
+            // Look for pattern like ">>> 469:" or "   470:"
+            let trimmed = line.trim_start();
+            if trimmed.starts_with(">>>") || line.starts_with("   ") {
+                // Extract the number after the marker
+                let parts: Vec<&str> = trimmed.split(':').collect();
+                if parts.len() >= 2 {
+                    let num_part = parts[0].trim_start_matches(">>>").trim();
+                    num_part.parse::<usize>().ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Parse line number from a formatted output line
+/// Returns Some(line_number) if the line contains a line number marker
+fn parse_line_number_from_output(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with(">>>") || line.starts_with("   ") {
+        let parts: Vec<&str> = trimmed.split(':').collect();
+        if parts.len() >= 2 {
+            let num_part = parts[0].trim_start_matches(">>>").trim();
+            num_part.parse::<usize>().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Parse line range string (e.g., "10-20", "10", "10-", "-20")
+/// Returns (start_line, end_line) inclusive
+fn parse_line_range(range: &str, total_lines: usize) -> Result<(usize, usize)> {
+    let range = range.trim();
+
+    if range.contains('-') {
+        let parts: Vec<&str> = range.split('-').collect();
+        if parts.len() != 2 {
+            anyhow::bail!(
+                "Invalid line range format: '{}'. Expected formats: 10-20, 10, 10-, -20",
+                range
+            );
+        }
+
+        let start = if parts[0].is_empty() {
+            1
+        } else {
+            parts[0]
+                .parse::<usize>()
+                .map_err(|_| anyhow::anyhow!("Invalid start line number: '{}'", parts[0]))?
+        };
+
+        let end = if parts[1].is_empty() {
+            total_lines
+        } else {
+            parts[1]
+                .parse::<usize>()
+                .map_err(|_| anyhow::anyhow!("Invalid end line number: '{}'", parts[1]))?
+        };
+
+        if start < 1 {
+            anyhow::bail!("Start line must be >= 1");
+        }
+        if end > total_lines {
+            anyhow::bail!("End line {} exceeds file length {}", end, total_lines);
+        }
+        if start > end {
+            anyhow::bail!("Start line {} is greater than end line {}", start, end);
+        }
+
+        Ok((start, end))
+    } else {
+        // Single line number
+        let line_num = range
+            .parse::<usize>()
+            .map_err(|_| anyhow::anyhow!("Invalid line number: '{}'", range))?;
+
+        if line_num < 1 {
+            anyhow::bail!("Line number must be >= 1");
+        }
+        if line_num > total_lines {
+            anyhow::bail!("Line {} exceeds file length {}", line_num, total_lines);
+        }
+
+        Ok((line_num, line_num))
+    }
+}
+
+/// Print definition with blame info, grouping consecutive lines with the same commit
+fn print_definition_with_grouped_blame(
+    definition: &str,
+    blame_map: &HashMap<usize, searchfox_lib::BlameInfo>,
+) {
+    #[derive(Clone)]
+    struct CommitRange {
+        start_line: usize,
+        end_line: usize,
+        commit_hash: String,
+        message: String,
+    }
+
+    let mut current_range: Option<CommitRange> = None;
+    let mut pending_output: Vec<String> = Vec::new();
+
+    for line in definition.lines() {
+        pending_output.push(line.to_string());
+
+        if let Some(line_num) = parse_line_number_from_output(line) {
+            if let Some(blame_info) = blame_map.get(&line_num) {
+                if let Some(ref commit_info) = blame_info.commit_info {
+                    let parsed = parse_commit_header(&commit_info.header);
+                    let short_hash = blame_info.commit_hash[..8].to_string();
+
+                    let message = if let Some(bug) = parsed.bug_number {
+                        format!("Bug {}: {}", bug, parsed.message)
+                    } else {
+                        parsed.message.clone()
+                    };
+
+                    // Check if this is the same commit as current range
+                    if let Some(ref range) = current_range {
+                        if range.commit_hash == short_hash {
+                            // Extend current range
+                            current_range = Some(CommitRange {
+                                start_line: range.start_line,
+                                end_line: line_num,
+                                commit_hash: short_hash,
+                                message,
+                            });
+                            continue;
+                        } else {
+                            // Different commit - flush current range
+                            for output_line in &pending_output[..pending_output.len() - 1] {
+                                println!("{}", output_line);
+                            }
+                            pending_output.clear();
+                            pending_output.push(line.to_string());
+
+                            // Print blame for previous range
+                            if range.start_line == range.end_line {
+                                println!(
+                                    "         [{}] {} (line {})",
+                                    range.commit_hash, range.message, range.start_line
+                                );
+                            } else {
+                                println!(
+                                    "         [{}] {} (lines {}-{})",
+                                    range.commit_hash,
+                                    range.message,
+                                    range.start_line,
+                                    range.end_line
+                                );
+                            }
+                        }
+                    }
+
+                    // Start new range
+                    current_range = Some(CommitRange {
+                        start_line: line_num,
+                        end_line: line_num,
+                        commit_hash: short_hash,
+                        message,
+                    });
+                }
+            }
+        }
+    }
+
+    // Flush remaining output
+    for output_line in &pending_output {
+        println!("{}", output_line);
+    }
+
+    // Print final range if exists
+    if let Some(range) = current_range {
+        if range.start_line == range.end_line {
+            println!(
+                "         [{}] {} (line {})",
+                range.commit_hash, range.message, range.start_line
+            );
+        } else {
+            println!(
+                "         [{}] {} (lines {}-{})",
+                range.commit_hash, range.message, range.start_line, range.end_line
+            );
+        }
+    }
 }
