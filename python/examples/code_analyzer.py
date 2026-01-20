@@ -23,32 +23,31 @@ class MozillaCodeAnalyzer:
         """Find all implementations of a given interface."""
         # Search for class declarations that inherit from the interface
         results = self.client.search(
-            query=f": public {interface}",
-            cpp=True,
-            limit=limit
+            query=f": public {interface}", cpp=True, limit=limit
         )
 
         implementations = []
         for path, line_num, line in results:
             # Parse class name from the line
-            match = re.search(r'class\s+(\w+)', line)
+            match = re.search(r"class\s+(\w+)", line)
             if match:
-                implementations.append({
-                    'class': match.group(1),
-                    'path': path,
-                    'line': line_num,
-                    'full_line': line.strip()
-                })
+                implementations.append(
+                    {
+                        "class": match.group(1),
+                        "path": path,
+                        "line": line_num,
+                        "full_line": line.strip(),
+                    }
+                )
 
         return implementations
 
-    def analyze_include_patterns(self, directory: str, limit: int = 100) -> Dict[str, int]:
+    def analyze_include_patterns(
+        self, directory: str, limit: int = 100
+    ) -> Dict[str, int]:
         """Analyze include patterns in a directory."""
         results = self.client.search(
-            query='#include',
-            path=f"^{directory}",
-            cpp=True,
-            limit=limit
+            query="#include", path=f"^{directory}", cpp=True, limit=limit
         )
 
         include_counts = defaultdict(int)
@@ -61,13 +60,15 @@ class MozillaCodeAnalyzer:
 
         return dict(sorted(include_counts.items(), key=lambda x: x[1], reverse=True))
 
-    def find_method_calls(self, class_name: str, method_name: str, limit: int = 50) -> List[Tuple[str, int, str]]:
+    def find_method_calls(
+        self, class_name: str, method_name: str, limit: int = 50
+    ) -> List[Tuple[str, int, str]]:
         """Find all calls to a specific method of a class."""
         # Search for method calls in various patterns
         patterns = [
             f"{class_name}::{method_name}",  # Direct class method call
-            f"->{method_name}(",             # Pointer method call
-            f".{method_name}(",              # Object method call
+            f"->{method_name}(",  # Pointer method call
+            f".{method_name}(",  # Object method call
         ]
 
         all_results = []
@@ -75,7 +76,7 @@ class MozillaCodeAnalyzer:
             results = self.client.search(
                 query=pattern,
                 cpp=True,
-                limit=limit // len(patterns)  # Distribute limit across patterns
+                limit=limit // len(patterns),  # Distribute limit across patterns
             )
             all_results.extend(results)
 
@@ -92,10 +93,7 @@ class MozillaCodeAnalyzer:
 
     def get_class_hierarchy(self, base_class: str, depth: int = 2) -> Dict:
         """Build a class hierarchy tree starting from a base class."""
-        hierarchy = {
-            'class': base_class,
-            'derived': []
-        }
+        hierarchy = {"class": base_class, "derived": []}
 
         # Find direct derived classes
         implementations = self.find_implementations(base_class, limit=30)
@@ -103,48 +101,47 @@ class MozillaCodeAnalyzer:
         if depth > 0:
             for impl in implementations:
                 # Recursively find derived classes
-                sub_hierarchy = self.get_class_hierarchy(impl['class'], depth - 1)
-                hierarchy['derived'].append(sub_hierarchy)
+                sub_hierarchy = self.get_class_hierarchy(impl["class"], depth - 1)
+                hierarchy["derived"].append(sub_hierarchy)
         else:
-            hierarchy['derived'] = [{'class': impl['class'], 'derived': []} for impl in implementations]
+            hierarchy["derived"] = [
+                {"class": impl["class"], "derived": []} for impl in implementations
+            ]
 
         return hierarchy
 
     def analyze_api_usage(self, api_function: str) -> Dict:
         """Analyze how an API function is used across the codebase."""
-        results = self.client.search(
-            query=api_function,
-            limit=100
-        )
+        results = self.client.search(query=api_function, limit=100)
 
         usage_stats = {
-            'total_calls': len(results),
-            'files': set(),
-            'directories': defaultdict(int),
-            'patterns': defaultdict(int)
+            "total_calls": len(results),
+            "files": set(),
+            "directories": defaultdict(int),
+            "patterns": defaultdict(int),
         }
 
         for path, _, line in results:
-            usage_stats['files'].add(path)
+            usage_stats["files"].add(path)
 
             # Count by directory
-            if '/' in path:
-                directory = path.split('/')[0]
-                usage_stats['directories'][directory] += 1
+            if "/" in path:
+                directory = path.split("/")[0]
+                usage_stats["directories"][directory] += 1
 
             # Detect usage patterns
-            if f'new {api_function}' in line:
-                usage_stats['patterns']['constructor'] += 1
-            elif f'{api_function}::' in line:
-                usage_stats['patterns']['static_method'] += 1
-            elif f'->{api_function}' in line or f'.{api_function}' in line:
-                usage_stats['patterns']['method_call'] += 1
+            if f"new {api_function}" in line:
+                usage_stats["patterns"]["constructor"] += 1
+            elif f"{api_function}::" in line:
+                usage_stats["patterns"]["static_method"] += 1
+            elif f"->{api_function}" in line or f".{api_function}" in line:
+                usage_stats["patterns"]["method_call"] += 1
             else:
-                usage_stats['patterns']['other'] += 1
+                usage_stats["patterns"]["other"] += 1
 
-        usage_stats['files'] = len(usage_stats['files'])
-        usage_stats['directories'] = dict(usage_stats['directories'])
-        usage_stats['patterns'] = dict(usage_stats['patterns'])
+        usage_stats["files"] = len(usage_stats["files"])
+        usage_stats["directories"] = dict(usage_stats["directories"])
+        usage_stats["patterns"] = dict(usage_stats["patterns"])
 
         return usage_stats
 
@@ -152,7 +149,7 @@ class MozillaCodeAnalyzer:
 def print_hierarchy(hierarchy: Dict, indent: int = 0):
     """Pretty print a class hierarchy."""
     print("  " * indent + f"├─ {hierarchy['class']}")
-    for derived in hierarchy['derived']:
+    for derived in hierarchy["derived"]:
         print_hierarchy(derived, indent + 1)
 
 
@@ -198,10 +195,12 @@ def main():
     print(f"  Total calls: {usage['total_calls']}")
     print(f"  Files using it: {usage['files']}")
     print(f"  Top directories:")
-    for directory, count in sorted(usage['directories'].items(), key=lambda x: x[1], reverse=True)[:5]:
+    for directory, count in sorted(
+        usage["directories"].items(), key=lambda x: x[1], reverse=True
+    )[:5]:
         print(f"    {directory:<20} {count} calls")
     print(f"  Usage patterns:")
-    for pattern, count in usage['patterns'].items():
+    for pattern, count in usage["patterns"].items():
         print(f"    {pattern:<20} {count} times")
 
     # Example 6: Find security-sensitive patterns

@@ -162,6 +162,48 @@ impl SearchfoxClient {
             Err(e) => Err(PyException::new_err(format!("Ping failed: {}", e))),
         }
     }
+
+    fn get_blame_for_lines(
+        &self,
+        py: Python<'_>,
+        path: String,
+        lines: Vec<usize>,
+    ) -> PyResult<Vec<(usize, String, String, String)>> {
+        let client = self.inner.clone();
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.get_blame_for_lines(&path, &lines).await })
+        });
+
+        match result {
+            Ok(blame_map) => {
+                let mut results = Vec::new();
+                for (line_num, blame_info) in blame_map {
+                    if let Some(commit_info) = blame_info.commit_info {
+                        let parsed =
+                            searchfox_lib::parse_commit_header(&commit_info.header);
+                        let message = if let Some(bug) = parsed.bug_number {
+                            format!("Bug {}: {}", bug, parsed.message)
+                        } else {
+                            parsed.message.clone()
+                        };
+                        results.push((
+                            line_num,
+                            blame_info.commit_hash[..8].to_string(),
+                            message,
+                            parsed.date,
+                        ));
+                    }
+                }
+                results.sort_by_key(|(line_num, _, _, _)| *line_num);
+                Ok(results)
+            }
+            Err(e) => Err(PyException::new_err(format!(
+                "Failed to get blame: {}",
+                e
+            ))),
+        }
+    }
 }
 
 #[pymodule]

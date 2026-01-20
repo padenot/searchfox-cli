@@ -8,8 +8,14 @@ except ImportError:
     # During development with just the .so file
     from .searchfox import SearchfoxClient
 
-__version__ = "0.2.0"
-__all__ = ["SearchfoxClient", "search", "get_file", "get_definition"]
+__version__ = "0.7.0"
+__all__ = [
+    "SearchfoxClient",
+    "search",
+    "get_file",
+    "get_definition",
+    "get_blame_for_lines",
+]
 
 
 def search(
@@ -83,7 +89,9 @@ def get_file(path, repo="mozilla-central", log_requests=False):
     return client.get_file(path)
 
 
-def get_definition(symbol, repo="mozilla-central", path_filter=None, log_requests=False):
+def get_definition(
+    symbol, repo="mozilla-central", path_filter=None, log_requests=False
+):
     """
     Get the definition of a symbol.
 
@@ -98,3 +106,20 @@ def get_definition(symbol, repo="mozilla-central", path_filter=None, log_request
     """
     client = SearchfoxClient(repo, log_requests)
     return client.get_definition(symbol, path_filter)
+
+
+def get_blame_for_lines(path, lines, repo="mozilla-central", log_requests=False):
+    """
+    Get blame information for specific lines in a file.
+
+    Args:
+        path: Path to the file relative to repository root
+        lines: List of line numbers to get blame for
+        repo: Repository name (default: mozilla-central)
+        log_requests: Enable request logging
+
+    Returns:
+        List of tuples (line_number, commit_hash, message, date)
+    """
+    client = SearchfoxClient(repo, log_requests)
+    return client.get_blame_for_lines(path, lines)
