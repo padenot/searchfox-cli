@@ -180,8 +180,7 @@ impl SearchfoxClient {
                 let mut results = Vec::new();
                 for (line_num, blame_info) in blame_map {
                     if let Some(commit_info) = blame_info.commit_info {
-                        let parsed =
-                            searchfox_lib::parse_commit_header(&commit_info.header);
+                        let parsed = searchfox_lib::parse_commit_header(&commit_info.header);
                         let message = if let Some(bug) = parsed.bug_number {
                             format!("Bug {}: {}", bug, parsed.message)
                         } else {
@@ -198,10 +197,7 @@ impl SearchfoxClient {
                 results.sort_by_key(|(line_num, _, _, _)| *line_num);
                 Ok(results)
             }
-            Err(e) => Err(PyException::new_err(format!(
-                "Failed to get blame: {}",
-                e
-            ))),
+            Err(e) => Err(PyException::new_err(format!("Failed to get blame: {}", e))),
         }
     }
 }
