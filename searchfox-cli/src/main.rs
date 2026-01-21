@@ -3,6 +3,7 @@ use clap::Parser;
 use log::error;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
+    field_layout::{format_field_layout, FieldLayoutQuery},
     parse_commit_header,
     search::SearchOptions,
     CategoryFilter, SearchfoxClient,
@@ -13,7 +14,7 @@ use std::collections::HashMap;
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2"
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2\n  searchfox-cli --field-layout 'mozilla::dom::AudioContext'"
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -166,6 +167,14 @@ struct Args {
         long_help = "Set the depth of traversal for call graph searches. Higher values show more indirect calls.\nDefault is 1. Example: --depth 3"
     )]
     depth: u32,
+
+    #[arg(
+        long = "field-layout",
+        visible_aliases = ["class-layout", "struct-layout"],
+        help = "Display the field layout of a C++ class or struct",
+        long_help = "Display the field layout of a C++ class or struct, showing size and offset information.\nExample: --field-layout 'soundtouch::SoundTouch' or --field-layout 'mozilla::dom::AudioContext'"
+    )]
+    field_layout: Option<String>,
 
     #[arg(
         long = "exclude-tests",
@@ -385,6 +394,25 @@ async fn main() -> Result<()> {
             }
         } else {
             println!("No call graph results found for the query.");
+        }
+    } else if let Some(class_name) = &args.field_layout {
+        let query = FieldLayoutQuery {
+            class_name: class_name.clone(),
+        };
+
+        let result = client.search_field_layout(&query).await?;
+        if result.as_object().is_some_and(|o| !o.is_empty())
+            || result.as_array().is_some_and(|a| !a.is_empty())
+        {
+            if std::env::var("DEBUG_JSON").is_ok() {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                let formatted = format_field_layout(class_name, &result);
+                print!("{}", formatted);
+            }
+        } else {
+            println!("No field layout information found for '{}'.", class_name);
+            println!("Note: Field layout is only available for C++ classes and structs.");
         }
     } else if args.query.is_some()
         || args.symbol.is_some()

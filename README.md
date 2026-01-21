@@ -19,6 +19,7 @@ Also available as a Rust library (`searchfox-lib`) and Python package (`searchfo
 - Symbol search using searchfox's native indexing for precise lookups
 - Advanced definition finding with complete function/class extraction using intelligent brace matching
 - **Call graph analysis**: Understand code flow with `calls-from`, `calls-to`, and `calls-between` queries (LLM-friendly markdown output)
+- **Field layout inspection**: Display C++ class/struct memory layout with size, alignment, and field offsets
 - Language filtering (C++, C, WebIDL, JavaScript)
 - Path patterns and regular expressions
 - Request logging for performance analysis
@@ -294,6 +295,7 @@ searchfox-cli --get-file dom/media/AudioStream.h
 - `--calls-to <SYMBOL>` - Show what functions call the specified symbol
 - `--calls-between <SOURCE,TARGET>` - Show direct calls from source class/namespace to target class/namespace
 - `--depth <N>` - Set traversal depth for call graph searches (default: 1)
+- `--field-layout <CLASS>` - Display C++ class/struct memory layout (aliases: `--class-layout`, `--struct-layout`)
 
 ### Call Graph Analysis
 
@@ -364,6 +366,10 @@ searchfox-cli -p AudioContext.cpp
 # Advanced query syntax
 searchfox-cli -q 'path:dom/media symbol:AudioStream'
 searchfox-cli -q 're:AudioContext::.*Create'
+
+# Class memory layout inspection
+searchfox-cli --field-layout 'mozilla::dom::AudioContext'
+searchfox-cli --class-layout 'soundtouch::SoundTouch'
 
 # Performance analysis with request logging
 searchfox-cli --log-requests --define 'AudioContext::CreateGain'

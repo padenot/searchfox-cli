@@ -16,3 +16,5 @@ anyhow = { workspace = true }
 regex = { workspace = true }
 scraper = { workspace = true }
 log = { workspace = true }
+tabled = { workspace = true }
+terminal_size = { workspace = true }

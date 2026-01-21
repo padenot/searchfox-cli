@@ -3,7 +3,8 @@
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use searchfox_lib::{
-    call_graph::CallGraphQuery, search::SearchOptions, SearchfoxClient as RustClient,
+    call_graph::CallGraphQuery, field_layout::FieldLayoutQuery, search::SearchOptions,
+    SearchfoxClient as RustClient,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -148,6 +149,26 @@ impl SearchfoxClient {
             }
             Err(e) => Err(PyException::new_err(format!(
                 "Call graph search failed: {}",
+                e
+            ))),
+        }
+    }
+
+    fn search_field_layout(&self, py: Python<'_>, class_name: String) -> PyResult<String> {
+        let query = FieldLayoutQuery { class_name };
+
+        let client = self.inner.clone();
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.search_field_layout(&query).await })
+        });
+
+        match result {
+            Ok(json) => {
+                Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
+            }
+            Err(e) => Err(PyException::new_err(format!(
+                "Field layout search failed: {}",
                 e
             ))),
         }

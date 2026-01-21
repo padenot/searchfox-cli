@@ -2,6 +2,7 @@ pub mod blame;
 pub mod call_graph;
 pub mod client;
 pub mod definition;
+pub mod field_layout;
 pub mod file_reader;
 pub mod search;
 pub mod types;
