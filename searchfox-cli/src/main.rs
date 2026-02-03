@@ -220,8 +220,38 @@ struct Args {
     blame: bool,
 }
 
+fn is_llm_environment() -> bool {
+    std::env::var("CLAUDECODE").is_ok()
+        || std::env::var("CODEX_SANDBOX").is_ok()
+        || std::env::var("GEMINI_CLI").is_ok()
+        || std::env::var("OPENCODE").is_ok()
+}
+
+fn print_llm_help() {
+    print!(
+        r#"searchfox-cli: Mozilla code search
+-q <Q> query|-p <P> path filter|-C case|-r regex|-l <N> limit(50)|--context <N>
+--symbol <S>|--id <ID>|--define <S> full definition
+--get-file <F> [--lines <R>] R=10-20|10|10-|-20
+--calls-from <S>|--calls-to <S>|--calls-between <A,B> [--depth <N>]
+--field-layout <C> C++ class memory layout
+--cpp|--c|--webidl|--js file type filters
+--exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
+-R <repo> mozilla-central(default)|autoland|mozilla-beta|mozilla-release|mozilla-esr*|comm-central
+--blame commit info|--log-requests
+Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp
+Ex: --define 'Cls::Method'|--calls-from 'Cls::Method' --depth 2|--field-layout 'ns::Cls'
+"#
+    );
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    if is_llm_environment() && std::env::args().any(|arg| arg == "--help" || arg == "-h") {
+        print_llm_help();
+        return Ok(());
+    }
+
     let mut builder = env_logger::Builder::from_default_env();
     if std::env::var("RUST_LOG").is_err() {
         builder.filter_level(log::LevelFilter::Error);
