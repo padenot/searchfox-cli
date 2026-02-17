@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use log::error;
+use moz_cli_version_check::VersionChecker;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
     field_layout::{format_field_layout, FieldLayoutQuery},
@@ -248,8 +249,12 @@ Ex: --define 'Cls::Method'|--calls-from 'Cls::Method' --depth 2|--field-layout '
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let version_checker = VersionChecker::new("searchfox-cli", env!("CARGO_PKG_VERSION"));
+    version_checker.check_async();
+
     if is_llm_environment() && std::env::args().any(|arg| arg == "--help" || arg == "-h") {
         print_llm_help();
+        version_checker.print_warning();
         return Ok(());
     }
 
@@ -512,6 +517,7 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    version_checker.print_warning();
     Ok(())
 }
 
