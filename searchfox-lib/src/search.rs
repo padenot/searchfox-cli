@@ -4,6 +4,25 @@ use anyhow::Result;
 use log::{debug, warn};
 use reqwest::Url;
 
+fn is_constructor_pattern(symbol: &str) -> bool {
+    if let Some(colon_pos) = symbol.rfind("::") {
+        let class_part = &symbol[..colon_pos];
+        let method_part = &symbol[colon_pos + 2..];
+        let class_name = class_part.split("::").last().unwrap_or(class_part);
+        class_name == method_part
+    } else {
+        false
+    }
+}
+
+fn extract_class_name_from_constructor(symbol: &str) -> String {
+    if let Some(colon_pos) = symbol.rfind("::") {
+        symbol[..colon_pos].to_string()
+    } else {
+        symbol.to_string()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CategoryFilter {
     All,
@@ -274,7 +293,13 @@ impl SearchfoxClient {
         path_filter: Option<&str>,
         options: &SearchOptions,
     ) -> Result<Vec<(String, usize)>> {
-        let query = format!("id:{symbol}");
+        let is_ctor = is_constructor_pattern(symbol);
+        let search_symbol = if is_ctor {
+            extract_class_name_from_constructor(symbol)
+        } else {
+            symbol.to_string()
+        };
+        let query = format!("id:{search_symbol}");
         let mut url = Url::parse(&format!("https://searchfox.org/{}/search", self.repo))?;
         url.query_pairs_mut().append_pair("q", &query);
         if let Some(path) = path_filter {
@@ -331,41 +356,115 @@ impl SearchfoxClient {
                 }
             } else if let Some(categories) = value.as_object() {
                 let symbol_name = symbol.strip_prefix("id:").unwrap_or(symbol);
-                let is_method_search = symbol_name.contains("::");
+                let is_method_search = symbol_name.contains("::") && !is_ctor;
 
-                if !is_method_search {
-                    let class_def_key = format!("Definitions ({symbol_name})");
-                    if let Some(files_array) =
-                        categories.get(&class_def_key).and_then(|v| v.as_array())
-                    {
+                if !is_method_search && !is_ctor {
+                    for (category_name, category_value) in categories {
+                        let is_class_def_category = category_name.starts_with("Definitions (")
+                            && (category_name.ends_with(&format!("::{symbol_name})"))
+                                || category_name.ends_with(&format!("({symbol_name})")));
+                        let is_not_constructor =
+                            !category_name.contains(&format!("::{symbol_name}::{symbol_name})"));
+
+                        if !is_class_def_category || !is_not_constructor {
+                            continue;
+                        }
+
+                        debug!("Found class definition category: {}", category_name);
+                        let Some(files_array) = category_value.as_array() else {
+                            continue;
+                        };
+
                         for file in files_array {
-                            match serde_json::from_value::<File>(file.clone()) {
-                                Ok(file) => {
-                                    if !options.matches_language_filter(&file.path) {
-                                        continue;
-                                    }
+                            let Ok(file) = serde_json::from_value::<File>(file.clone()) else {
+                                continue;
+                            };
 
-                                    for line in file.lines {
-                                        if line.line.contains("class ")
-                                            || line.line.contains("struct ")
-                                        {
-                                            debug!(
-                                                "Found class/struct definition: {}:{} - {}",
-                                                file.path,
-                                                line.lno,
-                                                line.line.trim()
-                                            );
-                                            file_locations.push((file.path.clone(), line.lno));
-                                        }
-                                    }
-                                }
-                                Err(_) => continue,
+                            if !options.matches_language_filter(&file.path) {
+                                continue;
                             }
+
+                            let mut class_lines = Vec::new();
+                            for line in file.lines {
+                                if line.line.contains("class ") || line.line.contains("struct ") {
+                                    debug!(
+                                        "Found class/struct definition: {}:{} - {}",
+                                        file.path,
+                                        line.lno,
+                                        line.line.trim()
+                                    );
+                                    class_lines.push((
+                                        file.path.clone(),
+                                        line.lno,
+                                        line.line.clone(),
+                                    ));
+                                }
+                            }
+
+                            if class_lines.is_empty() {
+                                continue;
+                            }
+
+                            for (path, lno, line_text) in &class_lines {
+                                if !line_text.contains("{}") {
+                                    return Ok(vec![(path.clone(), *lno)]);
+                                }
+                            }
+                            let (path, lno, _) = &class_lines[0];
+                            return Ok(vec![(path.clone(), *lno)]);
                         }
                     }
                 }
 
-                let search_order = if is_method_search {
+                if is_ctor {
+                    let ctor_method_part = if let Some(colon_pos) = symbol.rfind("::") {
+                        &symbol[colon_pos + 2..]
+                    } else {
+                        symbol
+                    };
+
+                    let mut all_ctor_lines = Vec::new();
+                    for (category_name, category_value) in categories {
+                        if category_name.contains("Definitions")
+                            && category_name.ends_with(&format!("::{ctor_method_part})"))
+                        {
+                            debug!("Found constructor category: {}", category_name);
+                            if let Some(files_array) = category_value.as_array() {
+                                for file in files_array {
+                                    match serde_json::from_value::<File>(file.clone()) {
+                                        Ok(file) => {
+                                            if !options.matches_language_filter(&file.path) {
+                                                continue;
+                                            }
+
+                                            for line in file.lines {
+                                                if crate::utils::is_potential_definition(
+                                                    &line, symbol,
+                                                ) {
+                                                    debug!(
+                                                        "Found constructor definition: {}:{} - {}",
+                                                        file.path,
+                                                        line.lno,
+                                                        line.line.trim()
+                                                    );
+                                                    all_ctor_lines
+                                                        .push((file.path.clone(), line.lno));
+                                                }
+                                            }
+                                        }
+                                        Err(_) => continue,
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !all_ctor_lines.is_empty() {
+                        return Ok(all_ctor_lines);
+                    }
+                }
+
+                let search_order = if is_method_search || is_ctor {
                     vec!["Definitions", "Declarations"]
                 } else {
                     vec!["Declarations", "Definitions"]

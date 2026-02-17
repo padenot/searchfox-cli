@@ -126,20 +126,38 @@ impl SearchfoxClient {
             file_locations.len()
         );
 
-        if let Some((file_path, line_number)) = file_locations.first() {
+        let is_ctor = symbol.rfind("::").is_some_and(|pos| {
+            let class_part = &symbol[..pos];
+            let method_part = &symbol[pos + 2..];
+            let class_name = class_part.split("::").last().unwrap_or(class_part);
+            class_name == method_part
+        });
+
+        let mut results = Vec::new();
+        for (file_path, line_number) in &file_locations {
+            let context_lines = if is_ctor { 2 } else { 10 };
             match self
-                .get_definition_context(file_path, *line_number, 10, Some(symbol))
+                .get_definition_context(file_path, *line_number, context_lines, Some(symbol))
                 .await
             {
-                Ok(context) => Ok(context),
+                Ok(context) => {
+                    if !context.is_empty() {
+                        results.push(context);
+                    }
+                }
                 Err(e) => {
                     error!("Could not fetch context: {e}");
-                    Ok(String::new())
                 }
             }
-        } else {
+        }
+
+        if results.is_empty() {
             error!("No definition found for symbol '{symbol}'");
             Ok(String::new())
+        } else if results.len() == 1 {
+            Ok(results[0].clone())
+        } else {
+            Ok(results.join("\n\n"))
         }
     }
 }

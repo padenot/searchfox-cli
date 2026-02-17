@@ -224,7 +224,24 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
     let line_lower = line_text.to_lowercase();
     let query_lower = query.to_lowercase();
 
-    let contains_query = line_text.contains(query) || line_lower.contains(&query_lower);
+    let is_constructor = if let Some(colon_pos) = query.rfind("::") {
+        let class_part = &query[..colon_pos];
+        let method_part = &query[colon_pos + 2..];
+        let class_name = class_part.split("::").last().unwrap_or(class_part);
+        if class_name != method_part {
+            return false;
+        }
+        line_text.contains(&format!("::{}(", method_part))
+            || (line_text
+                .trim_start()
+                .starts_with(&format!("{}(", method_part))
+                && !line_text.contains("return"))
+    } else {
+        false
+    };
+
+    let contains_query =
+        line_text.contains(query) || line_lower.contains(&query_lower) || is_constructor;
 
     if contains_query {
         let looks_like_definition = line_text.contains("{")
@@ -233,6 +250,7 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
             || line_text.contains("class ")
             || line_text.contains("struct ")
             || line_text.contains("interface ")
+            || is_constructor
             || (line_text.contains("::")
                 && (line_text.contains("(")
                     || line_text.contains("already_AddRefed")
