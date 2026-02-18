@@ -263,6 +263,18 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
     }
 }
 
+pub fn searchfox_url_repo(repo: &str) -> &str {
+    match repo {
+        "mozilla-central" => "firefox-main",
+        "autoland" => "firefox-autoland",
+        "mozilla-beta" => "firefox-beta",
+        "mozilla-release" => "firefox-release",
+        "mozilla-esr128" => "firefox-esr128",
+        "mozilla-esr140" => "firefox-esr140",
+        _ => repo,
+    }
+}
+
 pub fn get_github_raw_url(repo: &str, file_path: &str) -> String {
     let github_repo = match repo {
         "comm-central" => "mozilla/releases-comm-central",

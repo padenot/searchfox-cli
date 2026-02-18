@@ -1,11 +1,28 @@
 use crate::client::SearchfoxClient;
 use crate::types::{BlameInfo, CommitInfo, ParsedCommitInfo};
+use crate::utils::searchfox_url_repo;
 use anyhow::Result;
 use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
 
 impl SearchfoxClient {
+    pub async fn get_head_hash(&self) -> anyhow::Result<String> {
+        let url = format!(
+            "https://searchfox.org/{}/commit-info/HEAD",
+            searchfox_url_repo(&self.repo)
+        );
+        let response = self.get_raw(&url).await?;
+        let json: serde_json::Value = serde_json::from_str(&response)
+            .map_err(|_| anyhow::anyhow!("Failed to parse HEAD commit info"))?;
+        json.as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|commit| commit.get("parent"))
+            .and_then(|p| p.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("Could not find HEAD revision hash in commit-info"))
+    }
+
     /// Fetch blame data for specific lines in a file
     pub async fn get_blame_for_lines(
         &self,

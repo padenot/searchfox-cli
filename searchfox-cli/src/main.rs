@@ -7,7 +7,7 @@ use searchfox_lib::{
     field_layout::{format_field_layout, FieldLayoutQuery},
     parse_commit_header,
     search::SearchOptions,
-    CategoryFilter, SearchfoxClient,
+    searchfox_url_repo, CategoryFilter, SearchfoxClient,
 };
 use std::collections::HashMap;
 
@@ -220,6 +220,22 @@ struct Args {
         long_help = "Augment query results with blame information.\nShows commit hash, author, date, and bug for each result line.\nWorks with --define, --symbol, -q, --get-file, etc."
     )]
     blame: bool,
+
+    #[arg(
+        long = "link",
+        default_value_t = false,
+        help = "Output searchfox links to results instead of content",
+        conflicts_with = "permalink"
+    )]
+    link: bool,
+
+    #[arg(
+        long = "permalink",
+        default_value_t = false,
+        help = "Output searchfox permalinks (with commit hash) to results instead of content",
+        conflicts_with = "link"
+    )]
+    permalink: bool,
 }
 
 fn is_llm_environment() -> bool {
@@ -241,8 +257,10 @@ fn print_llm_help() {
 --exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
 -R <repo> mozilla-central(default)|autoland|mozilla-beta|mozilla-release|mozilla-esr*|comm-central
 --blame commit info|--log-requests
+--link output searchfox links|--permalink output links with commit hash
 Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp
 Ex: --define 'Cls::Method'|--calls-from 'Cls::Method' --depth 2|--field-layout 'ns::Cls'
+Ex: --define 'AudioContext::AudioContext' --link
 "#
     );
 }
@@ -308,78 +326,114 @@ async fn main() -> Result<()> {
     };
 
     if let Some(symbol) = &args.define {
-        let result = client
-            .find_and_display_definition(symbol, args.path.as_deref(), &search_options)
-            .await?;
-        if !result.is_empty() {
-            if args.blame {
-                // First, get the file path from the result by finding the symbol location
-                let file_locations = client
-                    .find_symbol_locations(symbol, args.path.as_deref(), &search_options)
-                    .await?;
+        if args.link || args.permalink {
+            let hash = if args.permalink {
+                Some(client.get_head_hash().await?)
+            } else {
+                None
+            };
 
-                if let Some((file_path, _)) = file_locations.first() {
-                    // Parse the result to extract line numbers
-                    let line_numbers = extract_line_numbers_from_definition(&result);
+            let file_locations = client
+                .find_symbol_locations(symbol, args.path.as_deref(), &search_options)
+                .await?;
 
-                    if !line_numbers.is_empty() {
-                        // Fetch blame info
-                        let blame_map =
-                            client.get_blame_for_lines(file_path, &line_numbers).await?;
+            let is_ctor = symbol.rfind("::").is_some_and(|pos| {
+                let class_part = &symbol[..pos];
+                let method_part = &symbol[pos + 2..];
+                let class_name = class_part.split("::").last().unwrap_or(class_part);
+                class_name == method_part
+            });
+            let context_lines = if is_ctor { 2 } else { 10 };
 
-                        // Output with grouped blame
-                        print_definition_with_grouped_blame(&result, &blame_map);
+            for (file_path, line_number) in &file_locations {
+                if let Ok(context) = client
+                    .get_definition_context(file_path, *line_number, context_lines, Some(symbol))
+                    .await
+                {
+                    if let Some((start, end)) = extract_line_range_from_output(&context) {
+                        println!(
+                            "{}",
+                            generate_link(&client.repo, file_path, start, end, hash.as_deref())
+                        );
+                    }
+                }
+            }
+        } else {
+            let result = client
+                .find_and_display_definition(symbol, args.path.as_deref(), &search_options)
+                .await?;
+            if !result.is_empty() {
+                if args.blame {
+                    let file_locations = client
+                        .find_symbol_locations(symbol, args.path.as_deref(), &search_options)
+                        .await?;
+
+                    if let Some((file_path, _)) = file_locations.first() {
+                        let line_numbers = extract_line_numbers_from_definition(&result);
+
+                        if !line_numbers.is_empty() {
+                            let blame_map =
+                                client.get_blame_for_lines(file_path, &line_numbers).await?;
+                            print_definition_with_grouped_blame(&result, &blame_map);
+                        } else {
+                            println!("{}", result);
+                        }
                     } else {
                         println!("{}", result);
                     }
                 } else {
                     println!("{}", result);
                 }
-            } else {
-                println!("{}", result);
             }
         }
     } else if let Some(path) = &args.get_file {
-        let content = client.get_file(path).await?;
-
-        // Parse line range if provided
-        let (start_line, end_line) = if let Some(ref range) = args.lines {
-            parse_line_range(range, content.lines().count())?
+        if args.link || args.permalink {
+            let hash = if args.permalink {
+                Some(client.get_head_hash().await?)
+            } else {
+                None
+            };
+            let (start, end) = if let Some(ref range) = args.lines {
+                let content = client.get_file(path).await?;
+                parse_line_range(range, content.lines().count())?
+            } else {
+                (0, 0)
+            };
+            println!(
+                "{}",
+                generate_link(&client.repo, path, start, end, hash.as_deref())
+            );
         } else {
-            (1, content.lines().count())
-        };
+            let content = client.get_file(path).await?;
 
-        // Filter content to the specified range
-        let filtered_lines: Vec<(usize, &str)> = content
-            .lines()
-            .enumerate()
-            .map(|(idx, line)| (idx + 1, line))
-            .filter(|(line_num, _)| *line_num >= start_line && *line_num <= end_line)
-            .collect();
+            let (start_line, end_line) = if let Some(ref range) = args.lines {
+                parse_line_range(range, content.lines().count())?
+            } else {
+                (1, content.lines().count())
+            };
 
-        if args.blame {
-            // Get line numbers for the filtered range
-            let line_numbers: Vec<usize> = filtered_lines.iter().map(|(num, _)| *num).collect();
+            let filtered_lines: Vec<(usize, &str)> = content
+                .lines()
+                .enumerate()
+                .map(|(idx, line)| (idx + 1, line))
+                .filter(|(line_num, _)| *line_num >= start_line && *line_num <= end_line)
+                .collect();
 
-            // Fetch blame for the range
-            let blame_map = client.get_blame_for_lines(path, &line_numbers).await?;
-
-            // Format content with line numbers (using consistent spacing like --define)
-            let mut formatted_content = String::new();
-            for (line_num, line) in filtered_lines {
-                formatted_content.push_str(&format!("    {:4}: {}\n", line_num, line));
-            }
-
-            // Print with grouped blame
-            print_definition_with_grouped_blame(&formatted_content, &blame_map);
-        } else {
-            for (line_num, line) in filtered_lines {
-                if args.lines.is_some() {
-                    // Show line numbers when range is specified
-                    println!("{:4}: {}", line_num, line);
-                } else {
-                    // Original behavior without line numbers
-                    println!("{}", line);
+            if args.blame {
+                let line_numbers: Vec<usize> = filtered_lines.iter().map(|(num, _)| *num).collect();
+                let blame_map = client.get_blame_for_lines(path, &line_numbers).await?;
+                let mut formatted_content = String::new();
+                for (line_num, line) in filtered_lines {
+                    formatted_content.push_str(&format!("    {:4}: {}\n", line_num, line));
+                }
+                print_definition_with_grouped_blame(&formatted_content, &blame_map);
+            } else {
+                for (line_num, line) in filtered_lines {
+                    if args.lines.is_some() {
+                        println!("{:4}: {}", line_num, line);
+                    } else {
+                        println!("{}", line);
+                    }
                 }
             }
         }
@@ -456,60 +510,80 @@ async fn main() -> Result<()> {
         || args.path.is_some()
     {
         let results = client.search(&search_options).await?;
-        let mut count = 0;
 
-        if args.blame {
-            // Group results by file for efficient blame fetching
-            let mut results_by_file: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+        if args.link || args.permalink {
+            let hash = if args.permalink {
+                Some(client.get_head_hash().await?)
+            } else {
+                None
+            };
             for result in &results {
-                if result.line_number > 0 {
-                    results_by_file
-                        .entry(result.path.clone())
-                        .or_default()
-                        .push((result.line_number, result.line.clone()));
-                }
+                println!(
+                    "{}",
+                    generate_link(
+                        &client.repo,
+                        &result.path,
+                        result.line_number,
+                        result.line_number,
+                        hash.as_deref()
+                    )
+                );
             }
+        } else {
+            let mut count = 0;
+            if args.blame {
+                // Group results by file for efficient blame fetching
+                let mut results_by_file: HashMap<String, Vec<(usize, String)>> = HashMap::new();
+                for result in &results {
+                    if result.line_number > 0 {
+                        results_by_file
+                            .entry(result.path.clone())
+                            .or_default()
+                            .push((result.line_number, result.line.clone()));
+                    }
+                }
 
-            // Fetch and display results with blame
-            for (path, lines) in results_by_file {
-                let line_numbers: Vec<usize> = lines.iter().map(|(ln, _)| *ln).collect();
-                let blame_map = client.get_blame_for_lines(&path, &line_numbers).await?;
+                // Fetch and display results with blame
+                for (path, lines) in results_by_file {
+                    let line_numbers: Vec<usize> = lines.iter().map(|(ln, _)| *ln).collect();
+                    let blame_map = client.get_blame_for_lines(&path, &line_numbers).await?;
 
-                for (line_number, line_text) in lines {
-                    println!("{}:{}: {}", path, line_number, line_text);
+                    for (line_number, line_text) in lines {
+                        println!("{}:{}: {}", path, line_number, line_text);
 
-                    if let Some(blame_info) = blame_map.get(&line_number) {
-                        if let Some(ref commit_info) = blame_info.commit_info {
-                            let parsed = parse_commit_header(&commit_info.header);
-                            let short_hash = &blame_info.commit_hash[..8];
-                            if let Some(bug) = parsed.bug_number {
-                                println!(
-                                    "  [{}] Bug {}: {} ({}, {})",
-                                    short_hash, bug, parsed.message, parsed.author, parsed.date
-                                );
-                            } else {
-                                println!(
-                                    "  [{}] {} ({}, {})",
-                                    short_hash, parsed.message, parsed.author, parsed.date
-                                );
+                        if let Some(blame_info) = blame_map.get(&line_number) {
+                            if let Some(ref commit_info) = blame_info.commit_info {
+                                let parsed = parse_commit_header(&commit_info.header);
+                                let short_hash = &blame_info.commit_hash[..8];
+                                if let Some(bug) = parsed.bug_number {
+                                    println!(
+                                        "  [{}] Bug {}: {} ({}, {})",
+                                        short_hash, bug, parsed.message, parsed.author, parsed.date
+                                    );
+                                } else {
+                                    println!(
+                                        "  [{}] {} ({}, {})",
+                                        short_hash, parsed.message, parsed.author, parsed.date
+                                    );
+                                }
                             }
                         }
+                        count += 1;
+                    }
+                }
+            } else {
+                // Original output without blame
+                for result in &results {
+                    if result.line_number == 0 {
+                        println!("{}", result.path);
+                    } else {
+                        println!("{}:{}: {}", result.path, result.line_number, result.line);
                     }
                     count += 1;
                 }
             }
-        } else {
-            // Original output without blame
-            for result in &results {
-                if result.line_number == 0 {
-                    println!("{}", result.path);
-                } else {
-                    println!("{}:{}: {}", result.path, result.line_number, result.line);
-                }
-                count += 1;
-            }
+            println!("Total matches: {count}");
         }
-        println!("Total matches: {count}");
     } else {
         error!(
             "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, or --path must be provided"
@@ -519,6 +593,41 @@ async fn main() -> Result<()> {
 
     version_checker.print_warning();
     Ok(())
+}
+
+fn generate_link(
+    repo: &str,
+    path: &str,
+    start_line: usize,
+    end_line: usize,
+    hash: Option<&str>,
+) -> String {
+    let fragment = if start_line == 0 {
+        String::new()
+    } else if start_line == end_line {
+        format!("#{}", start_line)
+    } else {
+        format!("#{}-{}", start_line, end_line)
+    };
+    let rev_repo = searchfox_url_repo(repo);
+    match hash {
+        Some(h) => format!(
+            "https://searchfox.org/{}/rev/{}/{}{}",
+            rev_repo, h, path, fragment
+        ),
+        None => format!(
+            "https://searchfox.org/{}/source/{}{}",
+            rev_repo, path, fragment
+        ),
+    }
+}
+
+fn extract_line_range_from_output(output: &str) -> Option<(usize, usize)> {
+    let numbers = extract_line_numbers_from_definition(output);
+    match (numbers.first(), numbers.last()) {
+        (Some(&start), Some(&end)) => Some((start, end)),
+        _ => None,
+    }
 }
 
 /// Extract line numbers from definition output

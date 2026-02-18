@@ -12,5 +12,6 @@ pub use blame::parse_commit_header;
 pub use client::SearchfoxClient;
 pub use search::{CategoryFilter, SearchOptions};
 pub use types::*;
+pub use utils::searchfox_url_repo;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
