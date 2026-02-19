@@ -10,15 +10,14 @@ homepage = "https://github.com/padenot/searchfox-cli"
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ version }-{ target }.{ archive-format }"
 bin-dir = "{ bin }{ binary-ext }"
-pkg-fmt = "tgz"
 
 [[bin]]
 name = "searchfox-cli"
 path = "src/main.rs"
 
 [dependencies]
-searchfox-lib = { version = "0.10.2", path = "../searchfox-lib" }
-moz-cli-version-check = "0.2.1"
+searchfox-lib = { version = "0.10.3", path = "../searchfox-lib" }
+moz-cli-version-check = "0.2.2"
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
