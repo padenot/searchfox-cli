@@ -1,8 +1,7 @@
 use crate::client::SearchfoxClient;
 use crate::search::SearchOptions;
 use crate::utils::{
-    extract_complete_method, find_symbol_in_local_content, get_github_raw_url,
-    is_mozilla_repository, read_local_file,
+    extract_complete_method, find_symbol_in_local_content, is_mozilla_repository, read_local_file,
 };
 use anyhow::Result;
 use log::{debug, error};
@@ -72,8 +71,7 @@ impl SearchfoxClient {
             }
         }
 
-        let github_url = get_github_raw_url(&self.repo, file_path);
-        let file_content = self.get_raw(&github_url).await?;
+        let file_content = self.get_file(file_path).await?;
         let lines: Vec<&str> = file_content.lines().collect();
 
         let (_, method_lines) = extract_complete_method(&lines, line_number);

@@ -274,24 +274,3 @@ pub fn searchfox_url_repo(repo: &str) -> &str {
         _ => repo,
     }
 }
-
-pub fn get_github_raw_url(repo: &str, file_path: &str) -> String {
-    let github_repo = match repo {
-        "comm-central" => "mozilla/releases-comm-central",
-        _ => "mozilla/firefox",
-    };
-
-    let branch = match repo {
-        "mozilla-central" => "main",
-        "autoland" => "autoland",
-        "mozilla-beta" => "beta",
-        "mozilla-release" => "release",
-        "mozilla-esr115" => "esr115",
-        "mozilla-esr128" => "esr128",
-        "mozilla-esr140" => "esr140",
-        "comm-central" => "main",
-        _ => "main",
-    };
-
-    format!("https://raw.githubusercontent.com/{github_repo}/{branch}/{file_path}")
-}

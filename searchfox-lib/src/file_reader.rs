@@ -1,21 +1,25 @@
 use crate::client::SearchfoxClient;
-use crate::utils::get_github_raw_url;
+use crate::utils::searchfox_url_repo;
 use anyhow::Result;
-use log::error;
+use scraper::{Html, Selector};
 
 impl SearchfoxClient {
     pub async fn get_file(&self, path: &str) -> Result<String> {
-        let github_url = get_github_raw_url(&self.repo, path);
-
-        match self.get_raw(&github_url).await {
-            Ok(text) => Ok(text),
-            Err(e) => {
-                error!(
-                    "GitHub fetch failed ({}). You can try viewing it at:\nhttps://searchfox.org/{}/source/{}",
-                    e, self.repo, path
-                );
-                anyhow::bail!("Could not fetch file from GitHub");
-            }
+        let url = format!(
+            "https://searchfox.org/{}/source/{}",
+            searchfox_url_repo(&self.repo),
+            path
+        );
+        let html = self.get_html(&url).await?;
+        let document = Html::parse_document(&html);
+        let selector = Selector::parse("code.source-line").expect("valid selector");
+        let lines: Vec<String> = document
+            .select(&selector)
+            .map(|el| el.text().collect::<String>())
+            .collect();
+        if lines.is_empty() {
+            anyhow::bail!("Could not find file content at {}", url);
         }
+        Ok(lines.join(""))
     }
 }
