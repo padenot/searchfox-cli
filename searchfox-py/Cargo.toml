@@ -10,7 +10,7 @@ name = "searchfox"
 crate-type = ["cdylib"]
 
 [dependencies]
-searchfox-lib = { version = "0.10.4", path = "../searchfox-lib" }
+searchfox-lib = { version = "0.10.5", path = "../searchfox-lib" }
 pyo3 = { workspace = true, features = ["extension-module"] }
 tokio = { workspace = true }
 anyhow = { workspace = true }

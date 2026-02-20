@@ -16,8 +16,8 @@ name = "searchfox-cli"
 path = "src/main.rs"
 
 [dependencies]
-searchfox-lib = { version = "0.10.4", path = "../searchfox-lib" }
-moz-cli-version-check = "0.2.2"
+searchfox-lib = { version = "0.10.5", path = "../searchfox-lib" }
+moz-cli-version-check = "0.2.3"
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
