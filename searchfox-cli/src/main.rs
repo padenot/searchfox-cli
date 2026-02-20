@@ -86,8 +86,8 @@ struct Args {
 
     #[arg(
         long,
-        help = "Find symbol definitions",
-        long_help = "Search for symbol definitions using searchfox's symbol indexing.\nUses symbol: query syntax internally.\nExample: --symbol AudioContext"
+        help = "Search by mangled symbol name (or plain name for C functions)",
+        long_help = "Search by mangled symbol name using searchfox's symbol: query.\nMangled names are returned by --calls-from, --calls-to, and --calls-between.\nC functions are unmangled, so their plain name works directly.\nFor C++/JS use --id instead.\nExample: --symbol '_ZN7mozilla3dom24BaseAudioContext_BindingL10createGainE...'\nExample: --symbol 'PR_Sleep'  (C function, no mangling)"
     )]
     symbol: Option<String>,
 
@@ -248,7 +248,7 @@ fn print_llm_help() {
     print!(
         r#"searchfox-cli: Mozilla code search
 -q <Q> query|-p <P> path filter|-C case|-r regex|-l <N> limit(50)|--context <N>
---symbol <S>|--id <ID>|--define <S> full definition
+--symbol <mangled> (from calls-to/from output)|--id <ID> identifier|--define <S> full definition
 --get-file <F> [--lines <R>] R=10-20|10|10-|-20
 --calls-from <S>|--calls-to <S>|--calls-between <A,B> [--depth <N>]
 --field-layout <C> C++ class memory layout
