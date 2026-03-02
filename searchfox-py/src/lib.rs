@@ -33,6 +33,7 @@ impl SearchfoxClient {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (query=None, path=None, case=None, regexp=None, limit=None, context=None, symbol=None, id=None, cpp=None, c_lang=None, webidl=None, js=None, java=None))]
     fn search(
         &self,
         py: Python<'_>,
@@ -98,6 +99,7 @@ impl SearchfoxClient {
         }
     }
 
+    #[pyo3(signature = (symbol, path_filter=None))]
     fn get_definition(
         &self,
         py: Python<'_>,
@@ -124,6 +126,7 @@ impl SearchfoxClient {
         }
     }
 
+    #[pyo3(signature = (calls_from=None, calls_to=None, calls_between=None, depth=None))]
     fn search_call_graph(
         &self,
         py: Python<'_>,
@@ -226,7 +229,7 @@ impl SearchfoxClient {
 }
 
 #[pymodule]
-fn searchfox(_py: Python, m: &PyModule) -> PyResult<()> {
+fn searchfox(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SearchfoxClient>()?;
     Ok(())
 }

@@ -43,6 +43,24 @@ jobs:
     - name: Run clippy
       run: cargo clippy -- -D warnings
 
+  python-bindings:
+    name: Python Bindings
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m venv .venv
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: develop
+        env:
+          VIRTUAL_ENV: .venv
+
   build:
     name: Build
     runs-on: ${{ matrix.os }}
