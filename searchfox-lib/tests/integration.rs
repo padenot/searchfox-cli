@@ -98,6 +98,16 @@ async fn find_definition_returns_result() {
 }
 
 #[tokio::test]
+async fn find_definition_c_function_without_namespace() {
+    let result = client()
+        .find_and_display_definition("wasapi_get_min_latency", None, &default_opts())
+        .await
+        .unwrap();
+    assert!(!result.is_empty());
+    assert!(result.contains("wasapi_get_min_latency"));
+}
+
+#[tokio::test]
 async fn find_definition_unknown_symbol_returns_empty() {
     let result = client()
         .find_and_display_definition("ThisSymbolDoesNotExistXXX", None, &default_opts())

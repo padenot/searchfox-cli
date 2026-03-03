@@ -478,13 +478,6 @@ impl SearchfoxClient {
 
                 for search_type in search_order {
                     for (category_name, category_value) in categories {
-                        if !is_method_search {
-                            let class_def_key = format!("Definitions ({symbol_name})");
-                            if category_name == &class_def_key {
-                                continue;
-                            }
-                        }
-
                         if category_name.contains(search_type)
                             && (category_name.contains(symbol_name)
                                 || category_name
