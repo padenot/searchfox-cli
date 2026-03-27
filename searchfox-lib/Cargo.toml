@@ -18,3 +18,8 @@ scraper = { workspace = true }
 log = { workspace = true }
 tabled = { workspace = true }
 terminal_size = { workspace = true }
+rusqlite = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+tokio = { workspace = true }

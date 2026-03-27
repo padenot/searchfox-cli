@@ -374,6 +374,11 @@ searchfox-cli --class-layout 'soundtouch::SoundTouch'
 # Performance analysis with request logging
 searchfox-cli --log-requests --define 'AudioContext::CreateGain'
 searchfox-cli --log-requests -q AudioStream -l 10
+
+# Cache control for file fetches
+searchfox-cli --get-file dom/media/AudioStream.h --force-refetch
+searchfox-cli --get-file dom/media/AudioStream.h --no-cache
+searchfox-cli --clear-cache
 ```
 
 ### Request Logging
@@ -383,6 +388,27 @@ searchfox-cli --log-requests --define 'AudioContext::CreateGain'
 ```
 
 Shows HTTP request timing, response sizes, and baseline latency for performance analysis.
+
+### File Cache Policy
+
+`--get-file` uses an on-disk SQLite cache at `$XDG_CACHE_HOME/searchfox-cli/cache.db`, or `~/.cache/searchfox-cli/cache.db` when `XDG_CACHE_HOME` is unset.
+
+- Fresh TTL: cached file contents are reused for 1 hour without a network request.
+- Revalidation: after 1 hour, the client sends conditional requests with `ETag` and `Last-Modified` when available. A `304 Not Modified` response refreshes the cache timestamp without reparsing the file.
+- Retention: cache entries older than 7 days are pruned when the client opens the cache database.
+- Scope: the cache currently applies to `--get-file` / `SearchfoxClient::get_file`.
+
+Manual cache control:
+
+```bash
+searchfox-cli --clear-cache
+searchfox-cli --get-file dom/media/AudioStream.h --force-refetch
+searchfox-cli --get-file dom/media/AudioStream.h --no-cache
+```
+
+- `--clear-cache` deletes the cache database and exits.
+- `--force-refetch` bypasses any cached file entry for the current invocation, fetches fresh content from searchfox, and updates the cache if caching is enabled.
+- `--no-cache` disables cache reads and writes for the current invocation.
 
 ## Python API
 

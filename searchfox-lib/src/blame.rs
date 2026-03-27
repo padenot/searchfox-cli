@@ -15,12 +15,7 @@ impl SearchfoxClient {
         let response = self.get_raw(&url).await?;
         let json: serde_json::Value = serde_json::from_str(&response)
             .map_err(|_| anyhow::anyhow!("Failed to parse HEAD commit info"))?;
-        json.as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|commit| commit.get("parent"))
-            .and_then(|p| p.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("Could not find HEAD revision hash in commit-info"))
+        extract_head_hash(&json)
     }
 
     /// Fetch blame data for specific lines in a file
@@ -225,6 +220,29 @@ fn parse_author_date(text: &str) -> (String, String) {
     }
 }
 
+fn extract_head_hash(json: &serde_json::Value) -> anyhow::Result<String> {
+    let commit = json
+        .as_array()
+        .and_then(|arr| arr.first())
+        .ok_or_else(|| anyhow::anyhow!("Could not find HEAD commit-info entry"))?;
+
+    if let Some(parent) = commit.get("parent").and_then(|p| p.as_str()) {
+        return Ok(parent.to_string());
+    }
+
+    if let Some(fulldiff) = commit.get("fulldiff").and_then(|p| p.as_str()) {
+        if let Some(hash) = fulldiff.rsplit('/').next() {
+            if hash.len() == 40 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(hash.to_string());
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "Could not find HEAD revision hash in commit-info"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +276,27 @@ mod tests {
         let html = "Bug <a href=\"url\">123</a>: message";
         let result = strip_html_tags(html);
         assert_eq!(result, "Bug 123: message");
+    }
+
+    #[test]
+    fn test_extract_head_hash_from_parent() {
+        let json = serde_json::json!([{
+            "parent": "0123456789abcdef0123456789abcdef01234567"
+        }]);
+        assert_eq!(
+            extract_head_hash(&json).unwrap(),
+            "0123456789abcdef0123456789abcdef01234567"
+        );
+    }
+
+    #[test]
+    fn test_extract_head_hash_from_fulldiff() {
+        let json = serde_json::json!([{
+            "fulldiff": "https://hg.mozilla.org/mozilla-central/rev/e408e7705e7d720080ff2d20b6fa20ba17ca760d"
+        }]);
+        assert_eq!(
+            extract_head_hash(&json).unwrap(),
+            "e408e7705e7d720080ff2d20b6fa20ba17ca760d"
+        );
     }
 }

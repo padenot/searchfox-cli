@@ -8,18 +8,61 @@ pub struct SearchfoxClient {
     client: Client,
     pub repo: String,
     pub log_requests: bool,
+    pub(crate) base_url: String,
     request_counter: std::sync::atomic::AtomicUsize,
+    cache: Option<std::sync::Mutex<rusqlite::Connection>>,
+    cache_enabled: bool,
+    force_refetch: bool,
 }
 
 impl SearchfoxClient {
     pub fn new(repo: String, log_requests: bool) -> Result<Self> {
         let client = Self::create_tls13_client()?;
+        let cache = crate::cache::open().map(|conn| {
+            crate::cache::prune(&conn);
+            std::sync::Mutex::new(conn)
+        });
         Ok(Self {
             client,
             repo,
             log_requests,
+            base_url: "https://searchfox.org".to_string(),
             request_counter: std::sync::atomic::AtomicUsize::new(0),
+            cache,
+            cache_enabled: true,
+            force_refetch: false,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(repo: String, base_url: String) -> Result<Self> {
+        let client = Self::create_tls13_client()?;
+        let conn = crate::cache::open_in_memory()?;
+        Ok(Self {
+            client,
+            repo,
+            log_requests: false,
+            base_url,
+            request_counter: std::sync::atomic::AtomicUsize::new(0),
+            cache: Some(std::sync::Mutex::new(conn)),
+            cache_enabled: true,
+            force_refetch: false,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cache_set_stale(
+        &self,
+        key: &str,
+        content: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) {
+        if let Some(ref m) = self.cache {
+            if let Ok(c) = m.lock() {
+                crate::cache::set_with_timestamp(&c, key, content, etag, last_modified, 0);
+            }
+        }
     }
 
     fn create_tls13_client() -> Result<Client> {
@@ -171,7 +214,134 @@ impl SearchfoxClient {
         Ok(response.text().await?)
     }
 
+    pub async fn get_html_with_meta(
+        &self,
+        url: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) -> Result<Option<(String, Option<String>, Option<String>)>> {
+        debug!("Fetching HTML from: {}", url);
+
+        let mut request = self.client.get(url).header("Accept", "text/html");
+        if let Some(etag) = etag {
+            request = request.header("If-None-Match", etag);
+        }
+        if let Some(lm) = last_modified {
+            request = request.header("If-Modified-Since", lm);
+        }
+
+        let response = request.send().await?;
+        let status = response.status();
+
+        if status == reqwest::StatusCode::NOT_MODIFIED {
+            return Ok(None);
+        }
+
+        if !status.is_success() {
+            anyhow::bail!("Request failed: {}", status);
+        }
+
+        let etag = response
+            .headers()
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let last_modified = response
+            .headers()
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+
+        let text = response.text().await?;
+        Ok(Some((text, etag, last_modified)))
+    }
+
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    pub fn set_cache_enabled(&mut self, enabled: bool) {
+        self.cache_enabled = enabled;
+    }
+
+    pub fn set_force_refetch(&mut self, force_refetch: bool) {
+        self.force_refetch = force_refetch;
+    }
+
+    pub(crate) fn force_refetch(&self) -> bool {
+        self.force_refetch
+    }
+
+    pub(crate) fn cache_get(&self, url: &str) -> Option<crate::cache::CacheEntry> {
+        if !self.cache_enabled || self.force_refetch {
+            return None;
+        }
+        self.cache
+            .as_ref()?
+            .lock()
+            .ok()
+            .and_then(|c| crate::cache::get(&c, url))
+    }
+
+    pub(crate) fn cache_set(
+        &self,
+        url: &str,
+        content: &str,
+        etag: Option<&str>,
+        last_modified: Option<&str>,
+    ) {
+        if !self.cache_enabled {
+            return;
+        }
+        if let Some(ref m) = self.cache {
+            if let Ok(c) = m.lock() {
+                crate::cache::set(&c, url, content, etag, last_modified);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_cache_disables_reads_and_writes() {
+        let mut client =
+            SearchfoxClient::new_for_test("mozilla-central".into(), "https://example.com".into())
+                .unwrap();
+
+        client.cache_set("source:https://example.com/a", "v1", None, None);
+        assert!(client.cache_get("source:https://example.com/a").is_some());
+
+        client.set_cache_enabled(false);
+        assert!(client.cache_get("source:https://example.com/a").is_none());
+
+        client.cache_set("source:https://example.com/b", "v2", None, None);
+        client.set_cache_enabled(true);
+        assert!(client.cache_get("source:https://example.com/b").is_none());
+    }
+
+    #[test]
+    fn force_refetch_bypasses_reads_but_keeps_writes() {
+        let mut client =
+            SearchfoxClient::new_for_test("mozilla-central".into(), "https://example.com".into())
+                .unwrap();
+
+        client.cache_set("source:https://example.com/a", "v1", None, None);
+        assert!(client.cache_get("source:https://example.com/a").is_some());
+
+        client.set_force_refetch(true);
+        assert!(client.cache_get("source:https://example.com/a").is_none());
+
+        client.cache_set("source:https://example.com/b", "v2", None, None);
+        client.set_force_refetch(false);
+        assert_eq!(
+            client
+                .cache_get("source:https://example.com/b")
+                .unwrap()
+                .content,
+            "v2"
+        );
     }
 }

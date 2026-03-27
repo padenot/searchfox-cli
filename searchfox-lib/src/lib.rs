@@ -1,4 +1,5 @@
 pub mod blame;
+pub mod cache;
 pub mod call_graph;
 pub mod client;
 pub mod definition;

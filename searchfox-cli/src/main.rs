@@ -113,6 +113,24 @@ struct Args {
     log_requests: bool,
 
     #[arg(
+        long = "no-cache",
+        help = "Disable cache reads and writes for this invocation"
+    )]
+    no_cache: bool,
+
+    #[arg(
+        long = "force-refetch",
+        help = "Bypass cached file content and fetch fresh content from searchfox"
+    )]
+    force_refetch: bool,
+
+    #[arg(
+        long = "clear-cache",
+        help = "Delete the on-disk cache database and exit"
+    )]
+    clear_cache: bool,
+
+    #[arg(
         long = "cpp",
         help = "Filter results to C++ files only",
         long_help = "Filter results to C++ files only (.cc, .cpp, .h, .hh, .hpp)"
@@ -262,12 +280,13 @@ fn print_llm_help() {
 --field-layout <C> C++ class memory layout
 --cpp|--c|--webidl|--js|--java/--kt file type filters
 --exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
+--no-cache disable reads/writes|--force-refetch bypass cached file content|--clear-cache delete cache db
 -R <repo> mozilla-central(default)|autoland|mozilla-beta|mozilla-release|mozilla-esr*|comm-central
 --blame commit info|--log-requests
 --link output searchfox links|--permalink output links with commit hash
-Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp
+Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp|--get-file dom/media/AudioStream.h --force-refetch
 Ex: --define 'Cls::Method'|--calls-from 'Cls::Method' --depth 2|--field-layout 'ns::Cls'
-Ex: --define 'AudioContext::AudioContext' --link
+Ex: --define 'AudioContext::AudioContext' --link|--clear-cache
 "#
     );
 }
@@ -300,7 +319,20 @@ async fn main() -> Result<()> {
     builder.init();
     let args = Args::parse();
 
-    let client = SearchfoxClient::new(args.repo.clone(), args.log_requests)?;
+    if args.clear_cache {
+        let removed = searchfox_lib::cache::clear()?;
+        if removed {
+            println!("Cache cleared.");
+        } else {
+            println!("Cache already empty.");
+        }
+        version_checker.print_warning();
+        return Ok(());
+    }
+
+    let mut client = SearchfoxClient::new(args.repo.clone(), args.log_requests)?;
+    client.set_cache_enabled(!args.no_cache);
+    client.set_force_refetch(args.force_refetch);
 
     if args.log_requests {
         eprintln!("=== REQUEST LOGGING ENABLED ===");
