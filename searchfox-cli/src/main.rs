@@ -4,6 +4,7 @@ use log::error;
 use moz_cli_version_check::VersionChecker;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
+    can_gc::GcInfo,
     field_layout::{format_field_layout, FieldLayoutQuery},
     parse_commit_header,
     search::SearchOptions,
@@ -239,6 +240,13 @@ struct Args {
     only_normal: bool,
 
     #[arg(
+        long = "can-gc",
+        help = "Check if a function can trigger garbage collection",
+        long_help = "Check whether a function can trigger garbage collection (GC) in SpiderMonkey.\nShows 'can GC' or 'cannot GC', and the GC call path when applicable.\nOnly works for C++ functions analyzed by the GC hazard analysis.\nExample: --can-gc 'mozilla::dom::AudioContext::CreateGain'"
+    )]
+    can_gc: Option<String>,
+
+    #[arg(
         long = "blame",
         default_value_t = false,
         help = "Show blame/history info for results",
@@ -277,6 +285,7 @@ fn print_llm_help() {
 --symbol <mangled> (from calls-to/from output)|--id <ID> identifier|--define <S> full definition
 --get-file <F> [--lines <R>] R=10-20|10|10-|-20
 --calls-from <S>|--calls-to <S>|--calls-between <A,B> [--depth <N>]
+--can-gc <S> check if function can trigger GC
 --field-layout <C> C++ class memory layout
 --cpp|--c|--webidl|--js|--java/--kt file type filters
 --exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
@@ -535,6 +544,18 @@ async fn main() -> Result<()> {
         } else {
             println!("No call graph results found for the query.");
         }
+    } else if let Some(symbol) = &args.can_gc {
+        let results = client.get_gc_info(symbol).await?;
+        if results.is_empty() {
+            println!(
+                "No GC information found for '{}'. GC analysis is only available for C++ functions.",
+                symbol
+            );
+        } else {
+            for info in &results {
+                print_gc_info(info);
+            }
+        }
     } else if let Some(class_name) = &args.field_layout {
         let query = FieldLayoutQuery {
             class_name: class_name.clone(),
@@ -636,7 +657,7 @@ async fn main() -> Result<()> {
         }
     } else {
         error!(
-            "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, or --path must be provided"
+            "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, --can-gc, or --path must be provided"
         );
         std::process::exit(1);
     }
@@ -877,5 +898,19 @@ fn print_definition_with_grouped_blame(
                 range.commit_hash, range.message, range.start_line, range.end_line
             );
         }
+    }
+}
+
+fn print_gc_info(info: &GcInfo) {
+    if info.can_gc {
+        println!("{}: can GC", info.pretty);
+        if let Some(ref path) = info.gc_path {
+            println!("  GC call path:");
+            for line in path.lines() {
+                println!("    > {}", line);
+            }
+        }
+    } else {
+        println!("{}: cannot GC", info.pretty);
     }
 }

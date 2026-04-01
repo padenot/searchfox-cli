@@ -1,6 +1,7 @@
 pub mod blame;
 pub mod cache;
 pub mod call_graph;
+pub mod can_gc;
 pub mod client;
 pub mod definition;
 pub mod field_layout;
