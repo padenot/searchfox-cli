@@ -1619,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-cli"
-version = "0.10.10"
+version = "0.10.11"
 dependencies = [
  "anyhow",
  "clap",
@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-lib"
-version = "0.10.10"
+version = "0.10.11"
 dependencies = [
  "anyhow",
  "log",
@@ -1652,7 +1652,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-py"
-version = "0.10.10"
+version = "0.10.11"
 dependencies = [
  "anyhow",
  "pyo3",
