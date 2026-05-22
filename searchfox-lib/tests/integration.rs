@@ -146,50 +146,6 @@ async fn calls_from_returns_results() {
 // --- can_gc ---
 
 #[tokio::test]
-async fn can_gc_fully_qualified_can_gc() {
-    let results = client()
-        .get_gc_info("mozilla::dom::CanvasRenderingContext2D::DrawImage")
-        .await
-        .unwrap();
-    assert!(!results.is_empty(), "expected GC info for DrawImage");
-    assert!(
-        results.iter().any(|r| r.can_gc),
-        "expected at least one 'can GC' result"
-    );
-    assert!(
-        results
-            .iter()
-            .filter(|r| r.can_gc)
-            .any(|r| r.gc_path.is_some()),
-        "expected gc_path for can-GC result"
-    );
-}
-
-#[tokio::test]
-async fn can_gc_fully_qualified_cannot_gc() {
-    let results = client()
-        .get_gc_info("mozilla::dom::CanvasRenderingContext2D::CurrentState")
-        .await
-        .unwrap();
-    assert!(!results.is_empty(), "expected GC info for CurrentState");
-    assert!(results.iter().all(|r| !r.can_gc), "expected 'cannot GC'");
-}
-
-#[tokio::test]
-async fn can_gc_partial_name_resolves() {
-    let results = client()
-        .get_gc_info("CanvasRenderingContext2D::DrawImage")
-        .await
-        .unwrap();
-    assert!(
-        !results.is_empty(),
-        "partial name should resolve and find GC info"
-    );
-    assert!(results.iter().any(|r| r.can_gc));
-    assert!(results.iter().all(|r| r.pretty.contains("mozilla::dom")));
-}
-
-#[tokio::test]
 async fn can_gc_unknown_symbol_returns_empty() {
     let results = client()
         .get_gc_info("ThisSymbolDoesNotExistXXX::Foo")

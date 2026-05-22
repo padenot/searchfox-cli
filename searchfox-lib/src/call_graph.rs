@@ -1,5 +1,4 @@
 use crate::client::SearchfoxClient;
-use crate::types::SearchfoxResponse;
 use anyhow::Result;
 use reqwest::Url;
 use serde_json;
@@ -232,6 +231,14 @@ pub fn format_call_graph_markdown(query_text: &str, json: &serde_json::Value) ->
     output
 }
 
+fn extract_query_results_json(html: &str) -> Option<String> {
+    let marker = "var QUERY_RESULTS_JSON = ";
+    let start = html.find(marker)? + marker.len();
+    let rest = &html[start..];
+    let end = rest.rfind(";\n")?;
+    Some(rest[..end].to_string())
+}
+
 impl SearchfoxClient {
     pub async fn search_call_graph(&self, query: &CallGraphQuery) -> Result<serde_json::Value> {
         let query_string = if let Some(symbol) = &query.calls_from {
@@ -269,31 +276,19 @@ impl SearchfoxClient {
 
         let response_text = response.text().await?;
 
-        match serde_json::from_str::<serde_json::Value>(&response_text) {
-            Ok(json) => {
-                if let Some(symbol_graph) = json.get("SymbolGraphCollection") {
-                    Ok(symbol_graph.clone())
-                } else {
-                    match serde_json::from_str::<SearchfoxResponse>(&response_text) {
-                        Ok(parsed_json) => {
-                            let mut result = serde_json::json!({});
-                            for (key, value) in &parsed_json {
-                                if !key.starts_with('*')
-                                    && (value.as_array().is_some() || value.as_object().is_some())
-                                {
-                                    result[key] = value.clone();
-                                }
-                            }
-                            Ok(result)
-                        }
-                        Err(_) => Ok(json),
-                    }
-                }
-            }
-            Err(_) => Ok(serde_json::json!({
-                "error": "Failed to parse response as JSON",
-                "raw_response": response_text
-            })),
+        // Searchfox returns HTML with the result embedded in a script tag:
+        // var QUERY_RESULTS_JSON = { "SymbolGraphCollection": { ... } };
+        let json = if let Some(json_str) = extract_query_results_json(&response_text) {
+            serde_json::from_str::<serde_json::Value>(&json_str)
+                .unwrap_or_else(|_| serde_json::from_str(&response_text).unwrap_or(serde_json::json!({})))
+        } else {
+            serde_json::from_str::<serde_json::Value>(&response_text).unwrap_or(serde_json::json!({}))
+        };
+
+        if let Some(symbol_graph) = json.get("SymbolGraphCollection") {
+            Ok(symbol_graph.clone())
+        } else {
+            Ok(json)
         }
     }
 }

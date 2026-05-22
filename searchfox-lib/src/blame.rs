@@ -58,7 +58,7 @@ impl SearchfoxClient {
         // Build commit hash -> CommitInfo map
         let commit_map: HashMap<String, CommitInfo> = unique_commits
             .into_iter()
-            .zip(commit_infos.into_iter())
+            .zip(commit_infos)
             .map(|(hash, info)| (hash.to_string(), info))
             .collect();
 
@@ -114,12 +114,8 @@ impl SearchfoxClient {
         let line_selector = Selector::parse("div[role='row']").unwrap();
 
         let mut result = HashMap::new();
-        let mut line_number = 1;
 
-        // The searchfox HTML structure has rows with role="row"
-        // Each row contains a blame-strip div and code
-        for row in document.select(&line_selector) {
-            // Try to find a blame-strip in this row
+        for (line_number, row) in (1..).zip(document.select(&line_selector)) {
             if let Some(blame_elem) = row.select(&blame_selector).next() {
                 if let Some(blame_data) = blame_elem.value().attr("data-blame") {
                     if let Some((hash, path, orig_line)) = Self::parse_data_blame(blame_data) {
@@ -127,7 +123,6 @@ impl SearchfoxClient {
                     }
                 }
             }
-            line_number += 1;
         }
 
         log::debug!("Parsed {} blame entries from HTML", result.len());
