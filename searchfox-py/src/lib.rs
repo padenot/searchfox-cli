@@ -4,7 +4,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use searchfox_lib::{
     call_graph::CallGraphQuery, field_layout::FieldLayoutQuery, search::SearchOptions,
-    SearchfoxClient as RustClient,
+    SearchfoxClient as RustClient, can_gc::GcInfo,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -176,6 +176,26 @@ impl SearchfoxClient {
                 "Field layout search failed: {}",
                 e
             ))),
+        }
+    }
+
+    fn get_gc_info(
+        &self,
+        py: Python<'_>,
+        symbol: String,
+    ) -> PyResult<Vec<(String, String, bool, Option<String>)>> {
+        let client = self.inner.clone();
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.get_gc_info(&symbol).await })
+        });
+
+        match result {
+            Ok(infos) => Ok(infos
+                .into_iter()
+                .map(|GcInfo { pretty, mangled, can_gc, gc_path }| (pretty, mangled, can_gc, gc_path))
+                .collect()),
+            Err(e) => Err(PyException::new_err(format!("GC info lookup failed: {}", e))),
         }
     }
 
