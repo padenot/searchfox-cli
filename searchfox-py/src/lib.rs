@@ -11,11 +11,13 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 
 fn parse_langs(langs: Option<Vec<String>>) -> PyResult<Vec<Lang>> {
-    let Some(langs) = langs else { return Ok(Vec::new()) };
+    let Some(langs) = langs else {
+        return Ok(Vec::new());
+    };
     langs
         .iter()
         .map(|s| {
-            Lang::from_str(s).ok_or_else(|| {
+            Lang::parse(s).ok_or_else(|| {
                 PyException::new_err(format!(
                     "Unknown language '{}': expected one of cpp, c, js, webidl, java, kotlin, rust, python, html, css",
                     s
@@ -115,6 +117,24 @@ impl SearchfoxClient {
         let result = py.allow_threads(|| {
             self.runtime
                 .block_on(async move { client.get_file(&path).await })
+        });
+
+        match result {
+            Ok(content) => Ok(content),
+            Err(e) => Err(PyException::new_err(format!("Failed to get file: {}", e))),
+        }
+    }
+
+    fn get_file_at_revision(
+        &self,
+        py: Python<'_>,
+        path: String,
+        revision: String,
+    ) -> PyResult<String> {
+        let client = self.inner.clone();
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.get_file_at_revision(&path, &revision).await })
         });
 
         match result {
@@ -351,6 +371,21 @@ impl AsyncSearchfoxClient {
         future_into_py(py, async move {
             client
                 .get_file(&path)
+                .await
+                .map_err(|e| PyException::new_err(format!("Failed to get file: {}", e)))
+        })
+    }
+
+    fn get_file_at_revision<'py>(
+        &self,
+        py: Python<'py>,
+        path: String,
+        revision: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            client
+                .get_file_at_revision(&path, &revision)
                 .await
                 .map_err(|e| PyException::new_err(format!("Failed to get file: {}", e)))
         })

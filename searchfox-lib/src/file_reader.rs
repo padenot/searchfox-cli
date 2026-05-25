@@ -68,6 +68,33 @@ impl SearchfoxClient {
 
         Ok(content)
     }
+
+    pub async fn get_file_at_revision(&self, path: &str, revision: &str) -> Result<String> {
+        let url = format!(
+            "{}/{}/rev/{}/source/{}",
+            self.base_url,
+            searchfox_url_repo(&self.repo),
+            revision,
+            path
+        );
+
+        let cache_key = format!("source-rev:{revision}:{url}");
+
+        if let Some(entry) = self.cache_get(&cache_key) {
+            if entry.is_fresh() {
+                debug!("Cache hit (fresh) for: {}", url);
+                return Ok(entry.content);
+            }
+        }
+
+        let response = self.get(url.parse()?).await?;
+        let html = response.text().await?;
+        let content = parse_source_lines(&html, &url)?;
+        // Revision-pinned URLs are immutable — cache indefinitely.
+        self.cache_set(&cache_key, &content, None, None);
+
+        Ok(content)
+    }
 }
 
 fn parse_source_lines(html: &str, url: &str) -> Result<String> {
