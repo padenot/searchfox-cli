@@ -66,7 +66,7 @@ impl Lang {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         // "c" is an alias for Cpp (same extensions in Mozilla's codebase).
         // "kotlin"/"kt" are aliases for Java (same filter: .java and .kt files).
         match s.to_lowercase().as_str() {

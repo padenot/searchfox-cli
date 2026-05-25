@@ -378,11 +378,21 @@ async fn main() -> Result<()> {
         id: args.id.clone(),
         lang: {
             let mut langs = Vec::new();
-            if args.cpp { langs.push(searchfox_lib::Lang::Cpp); }
-            if args.c_lang { langs.push(searchfox_lib::Lang::C); }
-            if args.webidl { langs.push(searchfox_lib::Lang::WebIdl); }
-            if args.js { langs.push(searchfox_lib::Lang::Js); }
-            if args.java { langs.push(searchfox_lib::Lang::Java); }
+            if args.cpp {
+                langs.push(searchfox_lib::Lang::Cpp);
+            }
+            if args.c_lang {
+                langs.push(searchfox_lib::Lang::C);
+            }
+            if args.webidl {
+                langs.push(searchfox_lib::Lang::WebIdl);
+            }
+            if args.js {
+                langs.push(searchfox_lib::Lang::Js);
+            }
+            if args.java {
+                langs.push(searchfox_lib::Lang::Java);
+            }
             langs
         },
         category_filter,
