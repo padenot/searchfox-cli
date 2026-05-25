@@ -5,10 +5,37 @@ use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use searchfox_lib::{
     call_graph::CallGraphQuery, can_gc::GcInfo, field_layout::FieldLayoutQuery,
-    search::SearchOptions, SearchfoxClient as RustClient,
+    search::SearchOptions, CategoryFilter, Lang, SearchfoxClient as RustClient,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+
+fn parse_langs(langs: Option<Vec<String>>) -> PyResult<Vec<Lang>> {
+    let Some(langs) = langs else { return Ok(Vec::new()) };
+    langs
+        .iter()
+        .map(|s| {
+            Lang::from_str(s).ok_or_else(|| {
+                PyException::new_err(format!(
+                    "Unknown language '{}': expected one of cpp, c, js, webidl, java, kotlin, rust, python, html, css",
+                    s
+                ))
+            })
+        })
+        .collect()
+}
+
+fn parse_category_filter(tests: Option<&str>) -> PyResult<CategoryFilter> {
+    match tests {
+        None | Some("all") => Ok(CategoryFilter::All),
+        Some("only") => Ok(CategoryFilter::OnlyTests),
+        Some("exclude") => Ok(CategoryFilter::ExcludeTests),
+        Some(v) => Err(PyException::new_err(format!(
+            "Invalid tests value '{}': expected 'only', 'exclude', or None",
+            v
+        ))),
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Synchronous client
@@ -37,8 +64,7 @@ impl SearchfoxClient {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (query=None, path=None, case=None, regexp=None, limit=None, context=None, symbol=None, id=None, cpp=None, c_lang=None, webidl=None, js=None, java=None))]
+    #[pyo3(signature = (query=None, path=None, case=None, regexp=None, limit=None, context=None, symbol=None, id=None, langs=None, tests=None))]
     fn search(
         &self,
         py: Python<'_>,
@@ -50,11 +76,8 @@ impl SearchfoxClient {
         context: Option<usize>,
         symbol: Option<String>,
         id: Option<String>,
-        cpp: Option<bool>,
-        c_lang: Option<bool>,
-        webidl: Option<bool>,
-        js: Option<bool>,
-        java: Option<bool>,
+        langs: Option<Vec<String>>,
+        tests: Option<String>,
     ) -> PyResult<Vec<(String, usize, String)>> {
         let options = SearchOptions {
             query,
@@ -65,12 +88,8 @@ impl SearchfoxClient {
             context,
             symbol,
             id,
-            cpp: cpp.unwrap_or(false),
-            c_lang: c_lang.unwrap_or(false),
-            webidl: webidl.unwrap_or(false),
-            js: js.unwrap_or(false),
-            java: java.unwrap_or(false),
-            category_filter: searchfox_lib::CategoryFilter::All,
+            lang: parse_langs(langs)?,
+            category_filter: parse_category_filter(tests.as_deref())?,
         };
 
         let client = self.inner.clone();
@@ -285,8 +304,7 @@ impl AsyncSearchfoxClient {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (query=None, path=None, case=None, regexp=None, limit=None, context=None, symbol=None, id=None, cpp=None, c_lang=None, webidl=None, js=None, java=None))]
+    #[pyo3(signature = (query=None, path=None, case=None, regexp=None, limit=None, context=None, symbol=None, id=None, langs=None, tests=None))]
     fn search<'py>(
         &self,
         py: Python<'py>,
@@ -298,11 +316,8 @@ impl AsyncSearchfoxClient {
         context: Option<usize>,
         symbol: Option<String>,
         id: Option<String>,
-        cpp: Option<bool>,
-        c_lang: Option<bool>,
-        webidl: Option<bool>,
-        js: Option<bool>,
-        java: Option<bool>,
+        langs: Option<Vec<String>>,
+        tests: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let options = SearchOptions {
             query,
@@ -313,12 +328,8 @@ impl AsyncSearchfoxClient {
             context,
             symbol,
             id,
-            cpp: cpp.unwrap_or(false),
-            c_lang: c_lang.unwrap_or(false),
-            webidl: webidl.unwrap_or(false),
-            js: js.unwrap_or(false),
-            java: java.unwrap_or(false),
-            category_filter: searchfox_lib::CategoryFilter::All,
+            lang: parse_langs(langs)?,
+            category_filter: parse_category_filter(tests.as_deref())?,
         };
 
         let client = self.inner.clone();
