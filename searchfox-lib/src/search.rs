@@ -24,6 +24,66 @@ fn extract_class_name_from_constructor(symbol: &str) -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Cpp,
+    C,
+    Js,
+    WebIdl,
+    Java,
+    Kotlin,
+    Rust,
+    Python,
+    Html,
+    Css,
+}
+
+impl Lang {
+    pub fn matches(&self, path: &str) -> bool {
+        let p = path.to_lowercase();
+        match self {
+            Lang::Cpp => {
+                p.ends_with(".cc")
+                    || p.ends_with(".cpp")
+                    || p.ends_with(".h")
+                    || p.ends_with(".hh")
+                    || p.ends_with(".hpp")
+            }
+            Lang::C => p.ends_with(".c") || p.ends_with(".h"),
+            Lang::Js => {
+                p.ends_with(".js")
+                    || p.ends_with(".mjs")
+                    || p.ends_with(".ts")
+                    || p.ends_with(".cjs")
+                    || p.ends_with(".jsx")
+                    || p.ends_with(".tsx")
+            }
+            Lang::WebIdl => p.ends_with(".webidl"),
+            Lang::Java | Lang::Kotlin => p.ends_with(".java") || p.ends_with(".kt"),
+            Lang::Rust => p.ends_with(".rs"),
+            Lang::Python => p.ends_with(".py"),
+            Lang::Html => p.ends_with(".html") || p.ends_with(".xhtml") || p.ends_with(".htm"),
+            Lang::Css => p.ends_with(".css"),
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        // "c" is an alias for Cpp (same extensions in Mozilla's codebase).
+        // "kotlin"/"kt" are aliases for Java (same filter: .java and .kt files).
+        match s.to_lowercase().as_str() {
+            "cpp" | "c++" | "c" => Some(Lang::Cpp),
+            "js" | "javascript" | "typescript" | "ts" => Some(Lang::Js),
+            "webidl" => Some(Lang::WebIdl),
+            "java" | "kotlin" | "kt" => Some(Lang::Java),
+            "rust" | "rs" => Some(Lang::Rust),
+            "python" | "py" => Some(Lang::Python),
+            "html" => Some(Lang::Html),
+            "css" => Some(Lang::Css),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CategoryFilter {
     All,
     ExcludeTests,
@@ -60,11 +120,7 @@ pub struct SearchOptions {
     pub context: Option<usize>,
     pub symbol: Option<String>,
     pub id: Option<String>,
-    pub cpp: bool,
-    pub c_lang: bool,
-    pub webidl: bool,
-    pub js: bool,
-    pub java: bool,
+    pub lang: Vec<Lang>,
     pub category_filter: CategoryFilter,
 }
 
@@ -79,11 +135,7 @@ impl Default for SearchOptions {
             context: None,
             symbol: None,
             id: None,
-            cpp: false,
-            c_lang: false,
-            webidl: false,
-            js: false,
-            java: false,
+            lang: Vec::new(),
             category_filter: CategoryFilter::All,
         }
     }
@@ -91,46 +143,10 @@ impl Default for SearchOptions {
 
 impl SearchOptions {
     pub fn matches_language_filter(&self, path: &str) -> bool {
-        if !self.cpp && !self.c_lang && !self.webidl && !self.js && !self.java {
+        if self.lang.is_empty() {
             return true;
         }
-
-        let path_lower = path.to_lowercase();
-
-        if self.cpp
-            && (path_lower.ends_with(".cc")
-                || path_lower.ends_with(".cpp")
-                || path_lower.ends_with(".h")
-                || path_lower.ends_with(".hh")
-                || path_lower.ends_with(".hpp"))
-        {
-            return true;
-        }
-
-        if self.c_lang && (path_lower.ends_with(".c") || path_lower.ends_with(".h")) {
-            return true;
-        }
-
-        if self.webidl && path_lower.ends_with(".webidl") {
-            return true;
-        }
-
-        if self.js
-            && (path_lower.ends_with(".js")
-                || path_lower.ends_with(".mjs")
-                || path_lower.ends_with(".ts")
-                || path_lower.ends_with(".cjs")
-                || path_lower.ends_with(".jsx")
-                || path_lower.ends_with(".tsx"))
-        {
-            return true;
-        }
-
-        if self.java && (path_lower.ends_with(".java") || path_lower.ends_with(".kt")) {
-            return true;
-        }
-
-        false
+        self.lang.iter().any(|lang| lang.matches(path))
     }
 
     pub fn build_query(&self) -> String {

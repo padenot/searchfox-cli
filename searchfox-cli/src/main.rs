@@ -376,11 +376,15 @@ async fn main() -> Result<()> {
         context: args.context,
         symbol: args.symbol.clone(),
         id: args.id.clone(),
-        cpp: args.cpp,
-        c_lang: args.c_lang,
-        webidl: args.webidl,
-        js: args.js,
-        java: args.java,
+        lang: {
+            let mut langs = Vec::new();
+            if args.cpp { langs.push(searchfox_lib::Lang::Cpp); }
+            if args.c_lang { langs.push(searchfox_lib::Lang::C); }
+            if args.webidl { langs.push(searchfox_lib::Lang::WebIdl); }
+            if args.js { langs.push(searchfox_lib::Lang::Js); }
+            if args.java { langs.push(searchfox_lib::Lang::Java); }
+            langs
+        },
         category_filter,
     };
 
