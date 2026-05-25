@@ -71,7 +71,7 @@ impl SearchfoxClient {
 
     pub async fn get_file_at_revision(&self, path: &str, revision: &str) -> Result<String> {
         let url = format!(
-            "{}/{}/rev/{}/source/{}",
+            "{}/{}/rev/{}/{}",
             self.base_url,
             searchfox_url_repo(&self.repo),
             revision,
