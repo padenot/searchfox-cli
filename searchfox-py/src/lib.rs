@@ -216,8 +216,7 @@ impl SearchfoxClient {
 
     fn ping(&self, py: Python<'_>) -> PyResult<f64> {
         let client = self.inner.clone();
-        let result =
-            py.allow_threads(|| self.runtime.block_on(async move { client.ping().await }));
+        let result = py.allow_threads(|| self.runtime.block_on(async move { client.ping().await }));
 
         match result {
             Ok(duration) => Ok(duration.as_secs_f64()),
@@ -405,11 +404,7 @@ impl AsyncSearchfoxClient {
         })
     }
 
-    fn get_gc_info<'py>(
-        &self,
-        py: Python<'py>,
-        symbol: String,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn get_gc_info<'py>(&self, py: Python<'py>, symbol: String) -> PyResult<Bound<'py, PyAny>> {
         let client = self.inner.clone();
         future_into_py(py, async move {
             let infos = client

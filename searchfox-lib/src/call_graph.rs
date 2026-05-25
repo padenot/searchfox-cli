@@ -279,10 +279,12 @@ impl SearchfoxClient {
         // Searchfox returns HTML with the result embedded in a script tag:
         // var QUERY_RESULTS_JSON = { "SymbolGraphCollection": { ... } };
         let json = if let Some(json_str) = extract_query_results_json(&response_text) {
-            serde_json::from_str::<serde_json::Value>(&json_str)
-                .unwrap_or_else(|_| serde_json::from_str(&response_text).unwrap_or(serde_json::json!({})))
+            serde_json::from_str::<serde_json::Value>(&json_str).unwrap_or_else(|_| {
+                serde_json::from_str(&response_text).unwrap_or(serde_json::json!({}))
+            })
         } else {
-            serde_json::from_str::<serde_json::Value>(&response_text).unwrap_or(serde_json::json!({}))
+            serde_json::from_str::<serde_json::Value>(&response_text)
+                .unwrap_or(serde_json::json!({}))
         };
 
         if let Some(symbol_graph) = json.get("SymbolGraphCollection") {
