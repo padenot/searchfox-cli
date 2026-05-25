@@ -3,14 +3,15 @@
 # The compiled module is installed as searchfox.searchfox
 try:
     # When installed via maturin
-    from searchfox.searchfox import SearchfoxClient
+    from searchfox.searchfox import AsyncSearchfoxClient, SearchfoxClient
 except ImportError:
     # During development with just the .so file
-    from .searchfox import SearchfoxClient
+    from .searchfox import AsyncSearchfoxClient, SearchfoxClient
 
 __version__ = "0.7.0"
 __all__ = [
     "SearchfoxClient",
+    "AsyncSearchfoxClient",
     "search",
     "get_file",
     "get_definition",
