@@ -253,6 +253,30 @@ impl SearchfoxClient {
         }
     }
 
+    fn get_function_at_line(
+        &self,
+        py: Python<'_>,
+        path: String,
+        line: usize,
+    ) -> PyResult<Vec<(String, String)>> {
+        let client = self.inner.clone();
+        let result = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.get_function_at_line(&path, line).await })
+        });
+
+        match result {
+            Ok(contexts) => Ok(contexts
+                .into_iter()
+                .map(|c| (c.sym, c.pretty_line))
+                .collect()),
+            Err(e) => Err(PyException::new_err(format!(
+                "Failed to get function at line: {}",
+                e
+            ))),
+        }
+    }
+
     fn ping(&self, py: Python<'_>) -> PyResult<f64> {
         let client = self.inner.clone();
         let result = py.allow_threads(|| self.runtime.block_on(async move { client.ping().await }));
@@ -467,6 +491,27 @@ impl AsyncSearchfoxClient {
                          gc_path,
                      }| (pretty, mangled, can_gc, gc_path),
                 )
+                .collect::<Vec<_>>())
+        })
+    }
+
+    fn get_function_at_line<'py>(
+        &self,
+        py: Python<'py>,
+        path: String,
+        line: usize,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            let contexts = client
+                .get_function_at_line(&path, line)
+                .await
+                .map_err(|e| {
+                    PyException::new_err(format!("Failed to get function at line: {}", e))
+                })?;
+            Ok(contexts
+                .into_iter()
+                .map(|c| (c.sym, c.pretty_line))
                 .collect::<Vec<_>>())
         })
     }

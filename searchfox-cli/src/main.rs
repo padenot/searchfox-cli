@@ -6,6 +6,7 @@ use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
     can_gc::GcInfo,
     field_layout::{format_field_layout, FieldLayoutQuery},
+    nesting::NestingContext,
     parse_commit_header,
     search::SearchOptions,
     searchfox_url_repo, CategoryFilter, SearchfoxClient,
@@ -247,6 +248,13 @@ struct Args {
     can_gc: Option<String>,
 
     #[arg(
+        long = "function-at",
+        help = "Show which function/class contains the given line",
+        long_help = "Show which function or class contains a specific source line.\nFormat: path:line (e.g. dom/media/AudioStream.cpp:42)\nOutputs nesting context from innermost to outermost.\nWorks across all languages supported by searchfox."
+    )]
+    function_at: Option<String>,
+
+    #[arg(
         long = "blame",
         default_value_t = false,
         help = "Show blame/history info for results",
@@ -286,6 +294,7 @@ fn print_llm_help() {
 --get-file <F> [--lines <R>] R=10-20|10|10-|-20
 --calls-from <S>|--calls-to <S>|--calls-between <A,B> [--depth <N>]
 --can-gc <S> check if function can trigger GC
+--function-at <path:line> show which function/class contains a line
 --field-layout <C> C++ class memory layout
 --cpp|--c|--webidl|--js|--java/--kt file type filters
 --exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
@@ -557,6 +566,17 @@ async fn main() -> Result<()> {
             }
         } else {
             println!("No call graph results found for the query.");
+        }
+    } else if let Some(ref location) = args.function_at {
+        let (path, line) = parse_path_line(location)?;
+        let contexts = client.get_function_at_line(&path, line).await?;
+        if contexts.is_empty() {
+            println!(
+                "{}:{}: (file scope — not inside any function or class)",
+                path, line
+            );
+        } else {
+            print_nesting_contexts(&path, line, &contexts);
         }
     } else if let Some(symbol) = &args.can_gc {
         let results = client.get_gc_info(symbol).await?;
@@ -911,6 +931,30 @@ fn print_definition_with_grouped_blame(
                 "         [{}] {} (lines {}-{})",
                 range.commit_hash, range.message, range.start_line, range.end_line
             );
+        }
+    }
+}
+
+fn parse_path_line(s: &str) -> Result<(String, usize)> {
+    let (path, line_str) = s
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("Expected path:line format, got '{}'", s))?;
+    let line = line_str
+        .parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("Invalid line number '{}' in '{}'", line_str, s))?;
+    if line == 0 {
+        anyhow::bail!("Line number must be >= 1");
+    }
+    Ok((path.to_string(), line))
+}
+
+fn print_nesting_contexts(path: &str, line: usize, contexts: &[NestingContext]) {
+    println!("{}:{}", path, line);
+    for (i, ctx) in contexts.iter().enumerate() {
+        let indent = "  ".repeat(i);
+        println!("{}in {}", indent, ctx.sym);
+        if !ctx.pretty_line.is_empty() {
+            println!("{}  {}", indent, ctx.pretty_line);
         }
     }
 }

@@ -6,6 +6,7 @@ pub mod client;
 pub mod definition;
 pub mod field_layout;
 pub mod file_reader;
+pub mod nesting;
 pub mod search;
 pub mod types;
 pub mod utils;
