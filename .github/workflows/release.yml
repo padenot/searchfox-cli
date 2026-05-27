@@ -13,31 +13,8 @@ permissions:
   contents: write
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
   build-release:
     name: Build Release
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -91,38 +68,26 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz searchfox-cli
-          mv searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz ${{ github.workspace }}
+          tar czf searchfox-cli-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.tar.gz searchfox-cli
+          mv searchfox-cli-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.tar.gz ${{ github.workspace }}
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip searchfox-cli.exe
-          mv searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip ${{ github.workspace }}
+          7z a searchfox-cli-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.zip searchfox-cli.exe
+          mv searchfox-cli-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.zip ${{ github.workspace }}
 
-      - name: Upload Release Asset (Unix)
-        if: matrix.archive == 'tar.gz'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_name: searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload Release Asset (Windows)
-        if: matrix.archive == 'zip'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
-          asset_name: searchfox-cli-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.zip
-          asset_content_type: application/zip
+          files: searchfox-cli-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.${{ matrix.archive }}
