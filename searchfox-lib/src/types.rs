@@ -15,6 +15,8 @@ pub struct Line {
     #[allow(dead_code)]
     pub peek_range: Option<String>,
     pub upsearch: Option<String>,
+    pub context_before: Option<Vec<String>>,
+    pub context_after: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

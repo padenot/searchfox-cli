@@ -155,16 +155,18 @@ impl SearchOptions {
         } else if let Some(id) = &self.id {
             format!("id:{id}")
         } else if let Some(q) = &self.query {
-            if q.contains("path:")
+            let has_prefix = q.contains("path:")
                 || q.contains("pathre:")
                 || q.contains("symbol:")
                 || q.contains("id:")
                 || q.contains("text:")
-                || q.contains("re:")
-            {
-                q.clone()
-            } else if let Some(context) = self.context {
-                format!("context:{context} text:{q}")
+                || q.contains("re:");
+            if let Some(context) = self.context {
+                if has_prefix {
+                    format!("context:{context} {q}")
+                } else {
+                    format!("context:{context} text:{q}")
+                }
             } else {
                 q.clone()
             }
@@ -178,6 +180,8 @@ pub struct SearchResult {
     pub path: String,
     pub line_number: usize,
     pub line: String,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
 }
 
 impl SearchfoxClient {
@@ -240,6 +244,8 @@ impl SearchfoxClient {
                             path: file.path.clone(),
                             line_number: 0,
                             line: String::new(),
+                            context_before: vec![],
+                            context_after: vec![],
                         });
                         count += 1;
                     } else {
@@ -251,6 +257,8 @@ impl SearchfoxClient {
                                 path: file.path.clone(),
                                 line_number: line.lno,
                                 line: line.line.trim_end().to_string(),
+                                context_before: line.context_before.unwrap_or_default(),
+                                context_after: line.context_after.unwrap_or_default(),
                             });
                             count += 1;
                         }
@@ -281,6 +289,8 @@ impl SearchfoxClient {
                                     path: file.path.clone(),
                                     line_number: 0,
                                     line: String::new(),
+                                    context_before: vec![],
+                                    context_after: vec![],
                                 });
                                 count += 1;
                             } else {
@@ -292,6 +302,8 @@ impl SearchfoxClient {
                                         path: file.path.clone(),
                                         line_number: line.lno,
                                         line: line.line.trim_end().to_string(),
+                                        context_before: line.context_before.unwrap_or_default(),
+                                        context_after: line.context_after.unwrap_or_default(),
                                     });
                                     count += 1;
                                 }

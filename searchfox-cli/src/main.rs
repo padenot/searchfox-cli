@@ -682,7 +682,13 @@ async fn main() -> Result<()> {
                     if result.line_number == 0 {
                         println!("{}", result.path);
                     } else {
+                        for line in &result.context_before {
+                            println!("  {}", line.trim_end());
+                        }
                         println!("{}:{}: {}", result.path, result.line_number, result.line);
+                        for line in &result.context_after {
+                            println!("  {}", line.trim_end());
+                        }
                     }
                     count += 1;
                 }
