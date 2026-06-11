@@ -1,9 +1,21 @@
 """Python bindings for searchfox.org API."""
 
 try:
-    from searchfox.searchfox import AsyncSearchfoxClient, SearchfoxClient
+    from searchfox.searchfox import (
+        AsyncSearchfoxClient,
+        SearchfoxClient,
+        SearchfoxError,
+        SearchfoxNetworkError,
+        SearchfoxRequestError,
+    )
 except ImportError:
-    from .searchfox import AsyncSearchfoxClient, SearchfoxClient
+    from .searchfox import (
+        AsyncSearchfoxClient,
+        SearchfoxClient,
+        SearchfoxError,
+        SearchfoxNetworkError,
+        SearchfoxRequestError,
+    )
 
 
 class Lang:
@@ -29,6 +41,9 @@ __all__ = [
     "SearchfoxClient",
     "AsyncSearchfoxClient",
     "Lang",
+    "SearchfoxError",
+    "SearchfoxNetworkError",
+    "SearchfoxRequestError",
     "search",
     "get_file",
     "get_definition",

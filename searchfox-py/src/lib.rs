@@ -1,14 +1,43 @@
 #![allow(non_local_definitions)]
 
+use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use searchfox_lib::{
-    call_graph::CallGraphQuery, can_gc::GcInfo, field_layout::FieldLayoutQuery,
-    search::SearchOptions, CategoryFilter, Lang, SearchfoxClient as RustClient,
+    call_graph::CallGraphQuery, can_gc::GcInfo, classify_error, field_layout::FieldLayoutQuery,
+    search::SearchOptions, CategoryFilter, Lang, SearchfoxClient as RustClient, SearchfoxErrorKind,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+
+create_exception!(
+    searchfox,
+    SearchfoxError,
+    PyException,
+    "Base exception for all searchfox errors."
+);
+create_exception!(
+    searchfox,
+    SearchfoxNetworkError,
+    SearchfoxError,
+    "Network or server-side error (connection failure, timeout, HTTP 5xx)."
+);
+create_exception!(
+    searchfox,
+    SearchfoxRequestError,
+    SearchfoxError,
+    "Invalid request (bad parameters, resource not found, HTTP 4xx)."
+);
+
+fn to_py_err(msg: String, e: anyhow::Error) -> PyErr {
+    let full = format!("{}: {}", msg, e);
+    match classify_error(&e) {
+        SearchfoxErrorKind::Network => SearchfoxNetworkError::new_err(full),
+        SearchfoxErrorKind::Request => SearchfoxRequestError::new_err(full),
+        SearchfoxErrorKind::Other => SearchfoxError::new_err(full),
+    }
+}
 
 fn parse_langs(langs: Option<Vec<String>>) -> PyResult<Vec<Lang>> {
     let Some(langs) = langs else {
@@ -18,7 +47,7 @@ fn parse_langs(langs: Option<Vec<String>>) -> PyResult<Vec<Lang>> {
         .iter()
         .map(|s| {
             Lang::parse(s).ok_or_else(|| {
-                PyException::new_err(format!(
+                SearchfoxRequestError::new_err(format!(
                     "Unknown language '{}': expected one of cpp, c, js, webidl, java, kotlin, rust, python, html, css",
                     s
                 ))
@@ -32,7 +61,7 @@ fn parse_category_filter(tests: Option<&str>) -> PyResult<CategoryFilter> {
         None | Some("all") => Ok(CategoryFilter::All),
         Some("only") => Ok(CategoryFilter::OnlyTests),
         Some("exclude") => Ok(CategoryFilter::ExcludeTests),
-        Some(v) => Err(PyException::new_err(format!(
+        Some(v) => Err(SearchfoxRequestError::new_err(format!(
             "Invalid tests value '{}': expected 'only', 'exclude', or None",
             v
         ))),
@@ -54,11 +83,12 @@ impl SearchfoxClient {
     #[new]
     #[pyo3(signature = (repo="mozilla-central", log_requests=false))]
     fn new(repo: &str, log_requests: bool) -> PyResult<Self> {
-        let runtime = Runtime::new()
-            .map_err(|e| PyException::new_err(format!("Failed to create runtime: {}", e)))?;
+        let runtime = Runtime::new().map_err(|e| {
+            SearchfoxNetworkError::new_err(format!("Failed to create runtime: {}", e))
+        })?;
 
         let client = RustClient::new(repo.to_string(), log_requests)
-            .map_err(|e| PyException::new_err(format!("Failed to create client: {}", e)))?;
+            .map_err(|e| to_py_err("Failed to create client".into(), e))?;
 
         Ok(Self {
             inner: Arc::new(client),
@@ -101,14 +131,11 @@ impl SearchfoxClient {
         });
 
         match results {
-            Ok(results) => {
-                let py_results = results
-                    .into_iter()
-                    .map(|r| (r.path, r.line_number, r.line))
-                    .collect();
-                Ok(py_results)
-            }
-            Err(e) => Err(PyException::new_err(format!("Search failed: {}", e))),
+            Ok(results) => Ok(results
+                .into_iter()
+                .map(|r| (r.path, r.line_number, r.line))
+                .collect()),
+            Err(e) => Err(to_py_err("Search failed".into(), e)),
         }
     }
 
@@ -119,10 +146,7 @@ impl SearchfoxClient {
                 .block_on(async move { client.get_file(&path).await })
         });
 
-        match result {
-            Ok(content) => Ok(content),
-            Err(e) => Err(PyException::new_err(format!("Failed to get file: {}", e))),
-        }
+        result.map_err(|e| to_py_err("Failed to get file".into(), e))
     }
 
     fn get_file_at_revision(
@@ -137,10 +161,7 @@ impl SearchfoxClient {
                 .block_on(async move { client.get_file_at_revision(&path, &revision).await })
         });
 
-        match result {
-            Ok(content) => Ok(content),
-            Err(e) => Err(PyException::new_err(format!("Failed to get file: {}", e))),
-        }
+        result.map_err(|e| to_py_err("Failed to get file".into(), e))
     }
 
     #[pyo3(signature = (symbol, path_filter=None))]
@@ -161,13 +182,7 @@ impl SearchfoxClient {
             })
         });
 
-        match result {
-            Ok(definition) => Ok(definition),
-            Err(e) => Err(PyException::new_err(format!(
-                "Failed to get definition: {}",
-                e
-            ))),
-        }
+        result.map_err(|e| to_py_err("Failed to get definition".into(), e))
     }
 
     #[pyo3(signature = (calls_from=None, calls_to=None, calls_between=None, depth=None))]
@@ -196,10 +211,7 @@ impl SearchfoxClient {
             Ok(json) => {
                 Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
             }
-            Err(e) => Err(PyException::new_err(format!(
-                "Call graph search failed: {}",
-                e
-            ))),
+            Err(e) => Err(to_py_err("Call graph search failed".into(), e)),
         }
     }
 
@@ -216,10 +228,7 @@ impl SearchfoxClient {
             Ok(json) => {
                 Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
             }
-            Err(e) => Err(PyException::new_err(format!(
-                "Field layout search failed: {}",
-                e
-            ))),
+            Err(e) => Err(to_py_err("Field layout search failed".into(), e)),
         }
     }
 
@@ -246,10 +255,7 @@ impl SearchfoxClient {
                      }| (pretty, mangled, can_gc, gc_path),
                 )
                 .collect()),
-            Err(e) => Err(PyException::new_err(format!(
-                "GC info lookup failed: {}",
-                e
-            ))),
+            Err(e) => Err(to_py_err("GC info lookup failed".into(), e)),
         }
     }
 
@@ -270,10 +276,7 @@ impl SearchfoxClient {
                 .into_iter()
                 .map(|c| (c.sym, c.pretty_line))
                 .collect()),
-            Err(e) => Err(PyException::new_err(format!(
-                "Failed to get function at line: {}",
-                e
-            ))),
+            Err(e) => Err(to_py_err("Failed to get function at line".into(), e)),
         }
     }
 
@@ -283,7 +286,7 @@ impl SearchfoxClient {
 
         match result {
             Ok(duration) => Ok(duration.as_secs_f64()),
-            Err(e) => Err(PyException::new_err(format!("Ping failed: {}", e))),
+            Err(e) => Err(to_py_err("Ping failed".into(), e)),
         }
     }
 
@@ -321,7 +324,7 @@ impl SearchfoxClient {
                 results.sort_by_key(|(line_num, _, _, _)| *line_num);
                 Ok(results)
             }
-            Err(e) => Err(PyException::new_err(format!("Failed to get blame: {}", e))),
+            Err(e) => Err(to_py_err("Failed to get blame".into(), e)),
         }
     }
 }
@@ -341,7 +344,7 @@ impl AsyncSearchfoxClient {
     #[pyo3(signature = (repo="mozilla-central", log_requests=false))]
     fn new(repo: &str, log_requests: bool) -> PyResult<Self> {
         let client = RustClient::new(repo.to_string(), log_requests)
-            .map_err(|e| PyException::new_err(format!("Failed to create client: {}", e)))?;
+            .map_err(|e| to_py_err("Failed to create client".into(), e))?;
 
         Ok(Self {
             inner: Arc::new(client),
@@ -381,7 +384,7 @@ impl AsyncSearchfoxClient {
             let results = client
                 .search(&options)
                 .await
-                .map_err(|e| PyException::new_err(format!("Search failed: {}", e)))?;
+                .map_err(|e| to_py_err("Search failed".into(), e))?;
 
             Ok(results
                 .into_iter()
@@ -396,7 +399,7 @@ impl AsyncSearchfoxClient {
             client
                 .get_file(&path)
                 .await
-                .map_err(|e| PyException::new_err(format!("Failed to get file: {}", e)))
+                .map_err(|e| to_py_err("Failed to get file".into(), e))
         })
     }
 
@@ -411,7 +414,7 @@ impl AsyncSearchfoxClient {
             client
                 .get_file_at_revision(&path, &revision)
                 .await
-                .map_err(|e| PyException::new_err(format!("Failed to get file: {}", e)))
+                .map_err(|e| to_py_err("Failed to get file".into(), e))
         })
     }
 
@@ -428,7 +431,7 @@ impl AsyncSearchfoxClient {
             client
                 .find_and_display_definition(&symbol, path_filter.as_deref(), &options)
                 .await
-                .map_err(|e| PyException::new_err(format!("Failed to get definition: {}", e)))
+                .map_err(|e| to_py_err("Failed to get definition".into(), e))
         })
     }
 
@@ -453,7 +456,7 @@ impl AsyncSearchfoxClient {
             let json = client
                 .search_call_graph(&query)
                 .await
-                .map_err(|e| PyException::new_err(format!("Call graph search failed: {}", e)))?;
+                .map_err(|e| to_py_err("Call graph search failed".into(), e))?;
             Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
         })
     }
@@ -469,7 +472,7 @@ impl AsyncSearchfoxClient {
             let json = client
                 .search_field_layout(&query)
                 .await
-                .map_err(|e| PyException::new_err(format!("Field layout search failed: {}", e)))?;
+                .map_err(|e| to_py_err("Field layout search failed".into(), e))?;
             Ok(serde_json::to_string_pretty(&json).unwrap_or_else(|_| "{}".to_string()))
         })
     }
@@ -480,7 +483,7 @@ impl AsyncSearchfoxClient {
             let infos = client
                 .get_gc_info(&symbol)
                 .await
-                .map_err(|e| PyException::new_err(format!("GC info lookup failed: {}", e)))?;
+                .map_err(|e| to_py_err("GC info lookup failed".into(), e))?;
             Ok(infos
                 .into_iter()
                 .map(
@@ -506,9 +509,7 @@ impl AsyncSearchfoxClient {
             let contexts = client
                 .get_function_at_line(&path, line)
                 .await
-                .map_err(|e| {
-                    PyException::new_err(format!("Failed to get function at line: {}", e))
-                })?;
+                .map_err(|e| to_py_err("Failed to get function at line".into(), e))?;
             Ok(contexts
                 .into_iter()
                 .map(|c| (c.sym, c.pretty_line))
@@ -522,7 +523,7 @@ impl AsyncSearchfoxClient {
             let duration = client
                 .ping()
                 .await
-                .map_err(|e| PyException::new_err(format!("Ping failed: {}", e)))?;
+                .map_err(|e| to_py_err("Ping failed".into(), e))?;
             Ok(duration.as_secs_f64())
         })
     }
@@ -538,7 +539,7 @@ impl AsyncSearchfoxClient {
             let blame_map = client
                 .get_blame_for_lines(&path, &lines)
                 .await
-                .map_err(|e| PyException::new_err(format!("Failed to get blame: {}", e)))?;
+                .map_err(|e| to_py_err("Failed to get blame".into(), e))?;
 
             let mut results = Vec::new();
             for (line_num, blame_info) in blame_map {
@@ -569,5 +570,14 @@ impl AsyncSearchfoxClient {
 fn searchfox(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SearchfoxClient>()?;
     m.add_class::<AsyncSearchfoxClient>()?;
+    m.add("SearchfoxError", m.py().get_type::<SearchfoxError>())?;
+    m.add(
+        "SearchfoxNetworkError",
+        m.py().get_type::<SearchfoxNetworkError>(),
+    )?;
+    m.add(
+        "SearchfoxRequestError",
+        m.py().get_type::<SearchfoxRequestError>(),
+    )?;
     Ok(())
 }
