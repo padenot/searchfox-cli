@@ -15,7 +15,7 @@ Also available as a Rust library (`searchfox-lib`) and Python package (`searchfo
 
 ## Features
 
-- Search across multiple Mozilla repositories (mozilla-central, autoland, beta, release, ESR branches, comm-central)
+- Search across multiple Mozilla repositories (mozilla-central, beta, release, ESR branches, comm-central)
 - Symbol search using searchfox's native indexing for precise lookups
 - Advanced definition finding with complete function/class extraction using intelligent brace matching
 - **Call graph analysis**: Understand code flow with `calls-from`, `calls-to`, and `calls-between` queries (LLM-friendly markdown output)
@@ -68,9 +68,6 @@ searchfox-cli -q 'path:dom/media symbol:AudioStream'
 ### Repository Selection
 
 ```bash
-# Search in autoland repository
-searchfox-cli -q AudioStream -R autoland
-
 # Search in beta branch
 searchfox-cli -q AudioStream -R mozilla-beta
 ```
@@ -265,7 +262,6 @@ searchfox-cli --get-file dom/media/AudioStream.h
 ## Available Repositories
 
 - `mozilla-central` (default) - Main Firefox development
-- `autoland` - Integration repository
 - `mozilla-beta` - Beta release branch
 - `mozilla-release` - Release branch
 - `mozilla-esr115` - ESR 115 branch

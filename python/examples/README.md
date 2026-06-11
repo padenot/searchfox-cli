@@ -129,7 +129,6 @@ The searchfox Python API is useful for:
 ## Available Repositories
 
 - `mozilla-central` - Main Firefox development (default)
-- `autoland` - Integration repository
 - `mozilla-beta` - Beta release branch
 - `mozilla-release` - Release branch
 - `mozilla-esr115` - ESR 115 branch

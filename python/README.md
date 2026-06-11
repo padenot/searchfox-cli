@@ -22,8 +22,6 @@ from searchfox import SearchfoxClient, AsyncSearchfoxClient
 
 # Synchronous
 client = SearchfoxClient()                          # defaults to mozilla-central
-client = SearchfoxClient("autoland")
-
 # Asynchronous
 client = AsyncSearchfoxClient()
 ```
@@ -120,5 +118,5 @@ asyncio.run(main())
 
 ## Repositories
 
-`mozilla-central` (default), `autoland`, `mozilla-beta`, `mozilla-release`,
+`mozilla-central` (default), `mozilla-beta`, `mozilla-release`,
 `mozilla-esr128`, `mozilla-esr140`, `comm-central`

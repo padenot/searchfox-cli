@@ -202,10 +202,6 @@ fn url_repo_remaps_mozilla_central() {
         "firefox-main"
     );
     assert_eq!(
-        searchfox_lib::searchfox_url_repo("autoland"),
-        "firefox-autoland"
-    );
-    assert_eq!(
         searchfox_lib::searchfox_url_repo("comm-central"),
         "comm-central"
     );

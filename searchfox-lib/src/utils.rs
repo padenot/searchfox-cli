@@ -266,7 +266,6 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
 pub fn searchfox_url_repo(repo: &str) -> &str {
     match repo {
         "mozilla-central" => "firefox-main",
-        "autoland" => "firefox-autoland",
         "mozilla-beta" => "firefox-beta",
         "mozilla-release" => "firefox-release",
         "mozilla-esr128" => "firefox-esr128",

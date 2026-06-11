@@ -28,7 +28,7 @@ struct Args {
         long,
         default_value = "mozilla-central",
         help = "Repository to search in",
-        long_help = "Repository to search in. Available repositories:\n  mozilla-central (default) - Main Firefox development\n  autoland - Integration repository\n  mozilla-beta - Beta release branch\n  mozilla-release - Release branch\n  mozilla-esr115 - ESR 115 branch\n  mozilla-esr128 - ESR 128 branch\n  mozilla-esr140 - ESR 140 branch\n  comm-central - Thunderbird development"
+        long_help = "Repository to search in. Available repositories:\n  mozilla-central (default) - Main Firefox development\n  mozilla-beta - Beta release branch\n  mozilla-release - Release branch\n  mozilla-esr115 - ESR 115 branch\n  mozilla-esr128 - ESR 128 branch\n  mozilla-esr140 - ESR 140 branch\n  comm-central - Thunderbird development"
     )]
     repo: String,
 
@@ -299,7 +299,7 @@ fn print_llm_help() {
 --cpp|--c|--webidl|--js|--java/--kt file type filters
 --exclude-tests|--exclude-generated|--only-tests|--only-generated|--only-normal
 --no-cache disable reads/writes|--force-refetch bypass cached file content|--clear-cache delete cache db
--R <repo> mozilla-central(default)|autoland|mozilla-beta|mozilla-release|mozilla-esr*|comm-central
+-R <repo> mozilla-central(default)|mozilla-beta|mozilla-release|mozilla-esr*|comm-central
 --blame commit info|--log-requests
 --link output searchfox links|--permalink output links with commit hash
 Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp|--get-file dom/media/AudioStream.h --force-refetch
