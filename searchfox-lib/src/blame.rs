@@ -15,7 +15,48 @@ impl SearchfoxClient {
         let response = self.get_raw(&url).await?;
         let json: serde_json::Value = serde_json::from_str(&response)
             .map_err(|_| anyhow::anyhow!("Failed to parse HEAD commit info"))?;
-        extract_head_hash(&json)
+
+        let commit = json
+            .as_array()
+            .and_then(|arr| arr.first())
+            .ok_or_else(|| anyhow::anyhow!("Could not find HEAD commit-info entry"))?;
+
+        // For repos with HG history (e.g. firefox-main), fulldiff contains an HG hash.
+        // Searchfox's hgrev endpoint (web-server.rs) redirects to /rev/<git-hash>/ via
+        // `git cinnabar hg2git`, giving the git hash Searchfox uses for permalinks.
+        if let Some(hg_hash) = commit
+            .get("fulldiff")
+            .and_then(|p| p.as_str())
+            .and_then(|s| s.rsplit('/').next())
+            .filter(|h| h.len() == 40 && h.chars().all(|c| c.is_ascii_hexdigit()))
+        {
+            let hgrev_url = format!(
+                "https://searchfox.org/{}/hgrev/{}",
+                searchfox_url_repo(&self.repo),
+                hg_hash
+            );
+            if let Ok(final_url) = self.get_final_url(&hgrev_url).await {
+                if let Some(git_hash) = final_url
+                    .split("/rev/")
+                    .nth(1)
+                    .and_then(|s| s.split('/').next())
+                    .filter(|h| h.len() == 40 && h.chars().all(|c| c.is_ascii_hexdigit()))
+                {
+                    return Ok(git_hash.to_string());
+                }
+            }
+        }
+
+        // For pure git repos, parent is HEAD's parent git hash — use as fallback.
+        if let Some(parent) = commit.get("parent").and_then(|p| p.as_str()) {
+            if parent.len() == 40 && parent.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(parent.to_string());
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Could not find HEAD revision hash in commit-info"
+        ))
     }
 
     /// Fetch blame data for specific lines in a file
@@ -215,29 +256,6 @@ fn parse_author_date(text: &str) -> (String, String) {
     }
 }
 
-fn extract_head_hash(json: &serde_json::Value) -> anyhow::Result<String> {
-    let commit = json
-        .as_array()
-        .and_then(|arr| arr.first())
-        .ok_or_else(|| anyhow::anyhow!("Could not find HEAD commit-info entry"))?;
-
-    if let Some(parent) = commit.get("parent").and_then(|p| p.as_str()) {
-        return Ok(parent.to_string());
-    }
-
-    if let Some(fulldiff) = commit.get("fulldiff").and_then(|p| p.as_str()) {
-        if let Some(hash) = fulldiff.rsplit('/').next() {
-            if hash.len() == 40 && hash.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Ok(hash.to_string());
-            }
-        }
-    }
-
-    Err(anyhow::anyhow!(
-        "Could not find HEAD revision hash in commit-info"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -271,27 +289,5 @@ mod tests {
         let html = "Bug <a href=\"url\">123</a>: message";
         let result = strip_html_tags(html);
         assert_eq!(result, "Bug 123: message");
-    }
-
-    #[test]
-    fn test_extract_head_hash_from_parent() {
-        let json = serde_json::json!([{
-            "parent": "0123456789abcdef0123456789abcdef01234567"
-        }]);
-        assert_eq!(
-            extract_head_hash(&json).unwrap(),
-            "0123456789abcdef0123456789abcdef01234567"
-        );
-    }
-
-    #[test]
-    fn test_extract_head_hash_from_fulldiff() {
-        let json = serde_json::json!([{
-            "fulldiff": "https://hg.mozilla.org/mozilla-central/rev/e408e7705e7d720080ff2d20b6fa20ba17ca760d"
-        }]);
-        assert_eq!(
-            extract_head_hash(&json).unwrap(),
-            "e408e7705e7d720080ff2d20b6fa20ba17ca760d"
-        );
     }
 }
