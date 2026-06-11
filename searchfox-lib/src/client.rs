@@ -198,8 +198,7 @@ impl SearchfoxClient {
     }
 
     pub async fn get_final_url(&self, url: &str) -> Result<String> {
-        let url = reqwest::Url::parse(url)
-            .map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
+        let url = reqwest::Url::parse(url).map_err(|e| anyhow::anyhow!("Invalid URL: {}", e))?;
         let response = self.client.head(url).send().await?;
         Ok(response.url().as_str().to_string())
     }
