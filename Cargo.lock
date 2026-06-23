@@ -1636,9 +1636,11 @@ dependencies = [
  "libc",
  "log",
  "moz-cli-version-check",
+ "regex",
  "searchfox-lib",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]

@@ -24,4 +24,5 @@ pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }
 tabled = "0.17"
 terminal_size = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
+url = "2"
 wiremock = "0.6"
