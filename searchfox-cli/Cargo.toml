@@ -25,3 +25,5 @@ anyhow = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
+regex = { workspace = true }

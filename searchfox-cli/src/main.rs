@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use url::Url;
 use log::error;
 use moz_cli_version_check::VersionChecker;
 use searchfox_lib::{
@@ -263,6 +264,13 @@ struct Args {
     blame: bool,
 
     #[arg(
+        long = "spec-refs",
+        help = "Find Gecko source lines referencing a spec section URL",
+        long_help = "Search mozilla-central for source lines that cite a spec section URL.\nResults are grouped into Code, Test, and Web-Platform Test categories.\nAccepts any full spec URL with a # fragment.\nExample: --spec-refs 'https://html.spec.whatwg.org/#navigate'\nExample: --spec-refs 'https://tc39.es/ecma262/#sec-HostLoadImportedModule'"
+    )]
+    spec_refs: Option<String>,
+
+    #[arg(
         long = "link",
         default_value_t = false,
         help = "Output searchfox links to results instead of content",
@@ -305,6 +313,8 @@ fn print_llm_help() {
 Ex: -q AudioStream|-q '^Audio.*' -r|-q AudioStream -p ^dom/media --cpp|--get-file dom/media/AudioStream.h --force-refetch
 Ex: --define 'Cls::Method'|--calls-from 'Cls::Method' --depth 2|--field-layout 'ns::Cls'
 Ex: --define 'AudioContext::AudioContext' --link|--clear-cache
+--spec-refs <url> find Gecko source lines referencing a spec section URL (grouped by Code/Test/Test262/WebAssembly Test/Web-Platform Test)
+Ex: --spec-refs 'https://html.spec.whatwg.org/#navigate'|--spec-refs 'https://tc39.es/ecma262/#await'
 "#
     );
 }
@@ -609,6 +619,56 @@ async fn main() -> Result<()> {
             println!("No field layout information found for '{}'.", class_name);
             println!("Note: Field layout is only available for C++ classes and structs.");
         }
+    } else if let Some(ref spec_url) = args.spec_refs {
+        let parsed = Url::parse(spec_url)
+            .map_err(|_| anyhow::anyhow!("Invalid URL: {spec_url}"))?;
+        let domain = parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("No host in URL: {spec_url}"))?
+            .to_string();
+        let anchor = parsed
+            .fragment()
+            .ok_or_else(|| anyhow::anyhow!("URL must contain a #fragment: {spec_url}"))?
+            .to_string();
+
+        let query = format!(
+            "re:{}[^\\s]*#{}\\b",
+            regex::escape(&domain),
+            regex::escape(&anchor)
+        );
+        let options = SearchOptions {
+            query: Some(query),
+            limit: args.limit,
+            ..Default::default()
+        };
+        let results = client.search(&options).await?;
+
+        if results.is_empty() {
+            println!("No references found in {}.", args.repo);
+        } else {
+            println!(
+                "## Gecko references for {spec_url}\n\n{} reference(s) in {}\n",
+                results.len(),
+                args.repo
+            );
+            for category in spec_ref_category_names() {
+                let group: Vec<&searchfox_lib::search::SearchResult> = results
+                    .iter()
+                    .filter(|r| categorize_spec_ref(&r.path) == *category)
+                    .collect();
+                if group.is_empty() {
+                    continue;
+                }
+                println!("### {category}\n");
+                for r in group {
+                    println!(
+                        "- {}:{} — https://searchfox.org/{}/source/{}#{}",
+                        r.path, r.line_number, args.repo, r.path, r.line_number
+                    );
+                }
+                println!();
+            }
+        }
     } else if args.query.is_some()
         || args.symbol.is_some()
         || args.id.is_some()
@@ -697,13 +757,43 @@ async fn main() -> Result<()> {
         }
     } else {
         error!(
-            "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, --can-gc, or --path must be provided"
+            "Either --query, --symbol, --id, --get-file, --define, --calls-from, --calls-to, --calls-between, --can-gc, --spec-refs, or --path must be provided"
         );
         std::process::exit(1);
     }
 
     version_checker.print_warning();
     Ok(())
+}
+
+/// Path-prefix → category mappings for --spec-refs output.
+///
+/// Each entry is (path_prefix, category_name). Checked in order; the first
+/// match wins. Paths that contain "test" (case-insensitive) but match no
+/// prefix fall through to the "Test" catch-all. Everything else is "Code".
+/// To add a new category, append an entry here.
+const SPEC_REF_PATH_CATEGORIES: &[(&str, &str)] = &[
+    ("testing/web-platform", "Web-Platform Test"),
+    ("js/src/tests/test262", "Test262"),
+    ("js/src/jit-test/tests/wasm", "WebAssembly Test"),
+];
+
+fn categorize_spec_ref(path: &str) -> &'static str {
+    let lower = path.to_lowercase();
+    for (prefix, category) in SPEC_REF_PATH_CATEGORIES {
+        if lower.starts_with(prefix) {
+            return category;
+        }
+    }
+    if lower.contains("test") {
+        return "Test";
+    }
+    "Code"
+}
+
+/// Return all category names in display order.
+fn spec_ref_category_names() -> &'static [&'static str] {
+    &["Code", "Test", "Test262", "WebAssembly Test", "Web-Platform Test"]
 }
 
 fn generate_link(
@@ -976,5 +1066,69 @@ fn print_gc_info(info: &GcInfo) {
         }
     } else {
         println!("{}: cannot GC", info.pretty);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn categorize_web_platform_test() {
+        assert_eq!(
+            categorize_spec_ref("testing/web-platform/tests/html/browsers/browsing-the-web/navigating-across-documents/javascript-url-abort/javascript-url-abort-return-value-string.tentative.html"),
+            "Web-Platform Test"
+        );
+    }
+
+    #[test]
+    fn categorize_test262() {
+        assert_eq!(
+            categorize_spec_ref("js/src/tests/test262/built-ins/Promise/resolve/resolve-function-alreadyresolved.js"),
+            "Test262"
+        );
+    }
+
+    #[test]
+    fn categorize_webassembly_test() {
+        assert_eq!(
+            categorize_spec_ref("js/src/jit-test/tests/wasm/spec/memory.js"),
+            "WebAssembly Test"
+        );
+    }
+
+    #[test]
+    fn categorize_generic_test() {
+        assert_eq!(
+            categorize_spec_ref("dom/base/test/test_navigate.html"),
+            "Test"
+        );
+    }
+
+    #[test]
+    fn categorize_code() {
+        assert_eq!(
+            categorize_spec_ref("docshell/base/BrowsingContext.cpp"),
+            "Code"
+        );
+        assert_eq!(
+            categorize_spec_ref("js/src/builtin/Promise.cpp"),
+            "Code"
+        );
+        assert_eq!(
+            categorize_spec_ref("dom/navigation/Navigation.h"),
+            "Code"
+        );
+    }
+
+    #[test]
+    fn spec_ref_category_names_contains_all_prefix_categories() {
+        let names = spec_ref_category_names();
+        for (_, category) in SPEC_REF_PATH_CATEGORIES {
+            assert!(
+                names.contains(category),
+                "category '{category}' in SPEC_REF_PATH_CATEGORIES missing from spec_ref_category_names()"
+            );
+        }
     }
 }
