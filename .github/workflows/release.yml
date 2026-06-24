@@ -101,8 +101,6 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64
-          - os: ubuntu-latest
-            target: aarch64
           - os: macos-latest
             target: x86_64
           - os: macos-latest
@@ -111,12 +109,6 @@ jobs:
             target: x86_64
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64'
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - uses: PyO3/maturin-action@v1
         with:
