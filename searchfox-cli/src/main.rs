@@ -1,6 +1,5 @@
 use anyhow::Result;
 use clap::Parser;
-use url::Url;
 use log::error;
 use moz_cli_version_check::VersionChecker;
 use searchfox_lib::{
@@ -13,6 +12,7 @@ use searchfox_lib::{
     searchfox_url_repo, CategoryFilter, SearchfoxClient,
 };
 use std::collections::HashMap;
+use url::Url;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -620,8 +620,8 @@ async fn main() -> Result<()> {
             println!("Note: Field layout is only available for C++ classes and structs.");
         }
     } else if let Some(ref spec_url) = args.spec_refs {
-        let parsed = Url::parse(spec_url)
-            .map_err(|_| anyhow::anyhow!("Invalid URL: {spec_url}"))?;
+        let parsed =
+            Url::parse(spec_url).map_err(|_| anyhow::anyhow!("Invalid URL: {spec_url}"))?;
         let domain = parsed
             .host_str()
             .ok_or_else(|| anyhow::anyhow!("No host in URL: {spec_url}"))?
@@ -793,7 +793,13 @@ fn categorize_spec_ref(path: &str) -> &'static str {
 
 /// Return all category names in display order.
 fn spec_ref_category_names() -> &'static [&'static str] {
-    &["Code", "Test", "Test262", "WebAssembly Test", "Web-Platform Test"]
+    &[
+        "Code",
+        "Test",
+        "Test262",
+        "WebAssembly Test",
+        "Web-Platform Test",
+    ]
 }
 
 fn generate_link(
@@ -1111,14 +1117,8 @@ mod tests {
             categorize_spec_ref("docshell/base/BrowsingContext.cpp"),
             "Code"
         );
-        assert_eq!(
-            categorize_spec_ref("js/src/builtin/Promise.cpp"),
-            "Code"
-        );
-        assert_eq!(
-            categorize_spec_ref("dom/navigation/Navigation.h"),
-            "Code"
-        );
+        assert_eq!(categorize_spec_ref("js/src/builtin/Promise.cpp"), "Code");
+        assert_eq!(categorize_spec_ref("dom/navigation/Navigation.h"), "Code");
     }
 
     #[test]
