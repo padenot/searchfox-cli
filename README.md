@@ -1,6 +1,7 @@
 # searchfox-cli
 
 [![Crates.io](https://img.shields.io/crates/v/searchfox-cli.svg)](https://crates.io/crates/searchfox-cli)
+[![PyPI](https://img.shields.io/pypi/v/searchfox.svg)](https://pypi.org/project/searchfox/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Build Status](https://github.com/padenot/searchfox-cli/workflows/CI/badge.svg)](https://github.com/padenot/searchfox-cli/actions)
