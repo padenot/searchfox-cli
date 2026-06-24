@@ -8,12 +8,14 @@ pub mod field_layout;
 pub mod file_reader;
 pub mod nesting;
 pub mod search;
+pub mod spec_refs;
 pub mod types;
 pub mod utils;
 
 pub use blame::parse_commit_header;
 pub use client::SearchfoxClient;
 pub use search::{CategoryFilter, Lang, SearchOptions};
+pub use spec_refs::{categorize_spec_ref, spec_ref_category_names, spec_refs_query};
 pub use types::*;
 pub use utils::searchfox_url_repo;
 

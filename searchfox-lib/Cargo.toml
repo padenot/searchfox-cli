@@ -19,6 +19,7 @@ log = { workspace = true }
 tabled = { workspace = true }
 terminal_size = { workspace = true }
 rusqlite = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 wiremock = { workspace = true }

@@ -5,8 +5,9 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use searchfox_lib::{
-    call_graph::CallGraphQuery, can_gc::GcInfo, classify_error, field_layout::FieldLayoutQuery,
-    search::SearchOptions, CategoryFilter, Lang, SearchfoxClient as RustClient, SearchfoxErrorKind,
+    call_graph::CallGraphQuery, can_gc::GcInfo, categorize_spec_ref, classify_error,
+    field_layout::FieldLayoutQuery, search::SearchOptions, CategoryFilter, Lang,
+    SearchfoxClient as RustClient, SearchfoxErrorKind,
 };
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -136,6 +137,32 @@ impl SearchfoxClient {
                 .map(|r| (r.path, r.line_number, r.line))
                 .collect()),
             Err(e) => Err(to_py_err("Search failed".into(), e)),
+        }
+    }
+
+    #[pyo3(signature = (spec_url, limit=None))]
+    fn search_spec_refs(
+        &self,
+        py: Python<'_>,
+        spec_url: String,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<(String, usize, String, String)>> {
+        let client = self.inner.clone();
+        let lim = limit.unwrap_or(50);
+        let results = py.allow_threads(|| {
+            self.runtime
+                .block_on(async move { client.search_spec_refs(&spec_url, lim).await })
+        });
+
+        match results {
+            Ok(results) => Ok(results
+                .into_iter()
+                .map(|r| {
+                    let category = categorize_spec_ref(&r.path).to_string();
+                    (r.path, r.line_number, r.line, category)
+                })
+                .collect()),
+            Err(e) => Err(to_py_err("Spec refs search failed".into(), e)),
         }
     }
 
@@ -389,6 +416,31 @@ impl AsyncSearchfoxClient {
             Ok(results
                 .into_iter()
                 .map(|r| (r.path, r.line_number, r.line))
+                .collect::<Vec<_>>())
+        })
+    }
+
+    #[pyo3(signature = (spec_url, limit=None))]
+    fn search_spec_refs<'py>(
+        &self,
+        py: Python<'py>,
+        spec_url: String,
+        limit: Option<usize>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        let lim = limit.unwrap_or(50);
+        future_into_py(py, async move {
+            let results = client
+                .search_spec_refs(&spec_url, lim)
+                .await
+                .map_err(|e| to_py_err("Spec refs search failed".into(), e))?;
+
+            Ok(results
+                .into_iter()
+                .map(|r| {
+                    let category = categorize_spec_ref(&r.path).to_string();
+                    (r.path, r.line_number, r.line, category)
+                })
                 .collect::<Vec<_>>())
         })
     }

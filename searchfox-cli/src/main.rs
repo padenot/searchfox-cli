@@ -1,16 +1,16 @@
 use anyhow::Result;
 use clap::Parser;
-use url::Url;
 use log::error;
 use moz_cli_version_check::VersionChecker;
 use searchfox_lib::{
     call_graph::{format_call_graph_markdown, CallGraphQuery},
     can_gc::GcInfo,
+    categorize_spec_ref,
     field_layout::{format_field_layout, FieldLayoutQuery},
     nesting::NestingContext,
     parse_commit_header,
     search::SearchOptions,
-    searchfox_url_repo, CategoryFilter, SearchfoxClient,
+    searchfox_url_repo, spec_ref_category_names, CategoryFilter, SearchfoxClient,
 };
 use std::collections::HashMap;
 
@@ -620,28 +620,7 @@ async fn main() -> Result<()> {
             println!("Note: Field layout is only available for C++ classes and structs.");
         }
     } else if let Some(ref spec_url) = args.spec_refs {
-        let parsed = Url::parse(spec_url)
-            .map_err(|_| anyhow::anyhow!("Invalid URL: {spec_url}"))?;
-        let domain = parsed
-            .host_str()
-            .ok_or_else(|| anyhow::anyhow!("No host in URL: {spec_url}"))?
-            .to_string();
-        let anchor = parsed
-            .fragment()
-            .ok_or_else(|| anyhow::anyhow!("URL must contain a #fragment: {spec_url}"))?
-            .to_string();
-
-        let query = format!(
-            "re:{}[^\\s]*#{}\\b",
-            regex::escape(&domain),
-            regex::escape(&anchor)
-        );
-        let options = SearchOptions {
-            query: Some(query),
-            limit: args.limit,
-            ..Default::default()
-        };
-        let results = client.search(&options).await?;
+        let results = client.search_spec_refs(spec_url, args.limit).await?;
 
         if results.is_empty() {
             println!("No references found in {}.", args.repo);
@@ -764,36 +743,6 @@ async fn main() -> Result<()> {
 
     version_checker.print_warning();
     Ok(())
-}
-
-/// Path-prefix → category mappings for --spec-refs output.
-///
-/// Each entry is (path_prefix, category_name). Checked in order; the first
-/// match wins. Paths that contain "test" (case-insensitive) but match no
-/// prefix fall through to the "Test" catch-all. Everything else is "Code".
-/// To add a new category, append an entry here.
-const SPEC_REF_PATH_CATEGORIES: &[(&str, &str)] = &[
-    ("testing/web-platform", "Web-Platform Test"),
-    ("js/src/tests/test262", "Test262"),
-    ("js/src/jit-test/tests/wasm", "WebAssembly Test"),
-];
-
-fn categorize_spec_ref(path: &str) -> &'static str {
-    let lower = path.to_lowercase();
-    for (prefix, category) in SPEC_REF_PATH_CATEGORIES {
-        if lower.starts_with(prefix) {
-            return category;
-        }
-    }
-    if lower.contains("test") {
-        return "Test";
-    }
-    "Code"
-}
-
-/// Return all category names in display order.
-fn spec_ref_category_names() -> &'static [&'static str] {
-    &["Code", "Test", "Test262", "WebAssembly Test", "Web-Platform Test"]
 }
 
 fn generate_link(
@@ -1111,24 +1060,7 @@ mod tests {
             categorize_spec_ref("docshell/base/BrowsingContext.cpp"),
             "Code"
         );
-        assert_eq!(
-            categorize_spec_ref("js/src/builtin/Promise.cpp"),
-            "Code"
-        );
-        assert_eq!(
-            categorize_spec_ref("dom/navigation/Navigation.h"),
-            "Code"
-        );
-    }
-
-    #[test]
-    fn spec_ref_category_names_contains_all_prefix_categories() {
-        let names = spec_ref_category_names();
-        for (_, category) in SPEC_REF_PATH_CATEGORIES {
-            assert!(
-                names.contains(category),
-                "category '{category}' in SPEC_REF_PATH_CATEGORIES missing from spec_ref_category_names()"
-            );
-        }
+        assert_eq!(categorize_spec_ref("js/src/builtin/Promise.cpp"), "Code");
+        assert_eq!(categorize_spec_ref("dom/navigation/Navigation.h"), "Code");
     }
 }
