@@ -95,7 +95,7 @@ impl SearchfoxClient {
 
     async fn resolve_full_names(&self, symbol: &str) -> Result<Vec<String>> {
         let query = format!("id:{symbol}");
-        let mut url = Url::parse(&format!("https://searchfox.org/{}/search", self.repo))?;
+        let mut url = Url::parse(&format!("{}/{}/search", self.base_url, self.repo))?;
         url.query_pairs_mut().append_pair("q", &query);
 
         let response = self.get(url).await?;

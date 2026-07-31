@@ -18,7 +18,7 @@ use std::collections::HashMap;
 #[command(
     name = "searchfox-cli",
     about = "Searchfox CLI for Mozilla code search",
-    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2\n  searchfox-cli --field-layout 'mozilla::dom::AudioContext'"
+    long_about = "A command-line interface for searching Mozilla codebases using searchfox.org.\n\nExamples:\n  searchfox-cli -q AudioStream\n  searchfox-cli -q AudioStream -C -l 10\n  searchfox-cli -q '^Audio.*' -r\n  searchfox-cli -q AudioStream -p ^dom/media\n  searchfox-cli -p PContent.ipdl  # Search for files by path only\n  searchfox-cli --get-file dom/media/AudioStream.h\n  searchfox-cli --symbol AudioContext\n  searchfox-cli --symbol 'AudioContext::CreateGain'\n  searchfox-cli --id main\n  searchfox-cli -q 'path:dom/media AudioStream'\n  searchfox-cli -q 'symbol:AudioContext' --context 3\n  searchfox-cli --define 'AudioContext::CreateGain'\n  searchfox-cli --calls-from 'mozilla::dom::AudioContext::CreateGain' --depth 2\n  searchfox-cli --calls-to 'mozilla::dom::AudioContext::CreateGain' --depth 3\n  searchfox-cli --calls-between 'AudioContext,AudioNode' --depth 2\n  searchfox-cli --field-layout 'mozilla::dom::AudioContext'\n\nEnvironment:\n  SEARCHFOX_BASE_URL  Override the server base URL (default: https://searchfox.org)"
 )]
 struct Args {
     #[arg(short, long, help = "Search query string")]
@@ -365,7 +365,7 @@ async fn main() -> Result<()> {
     if args.log_requests {
         eprintln!("=== REQUEST LOGGING ENABLED ===");
         if let Err(e) = client.ping().await {
-            eprintln!("[PING] Warning: Could not ping searchfox.org: {e}");
+            eprintln!("[PING] Warning: Could not ping {}: {e}", client.base_url());
         }
         eprintln!("================================");
     }
@@ -445,7 +445,14 @@ async fn main() -> Result<()> {
                     if let Some((start, end)) = extract_line_range_from_output(&context) {
                         println!(
                             "{}",
-                            generate_link(&client.repo, file_path, start, end, hash.as_deref())
+                            generate_link(
+                                client.base_url(),
+                                &client.repo,
+                                file_path,
+                                start,
+                                end,
+                                hash.as_deref()
+                            )
                         );
                     }
                 }
@@ -493,7 +500,14 @@ async fn main() -> Result<()> {
             };
             println!(
                 "{}",
-                generate_link(&client.repo, path, start, end, hash.as_deref())
+                generate_link(
+                    client.base_url(),
+                    &client.repo,
+                    path,
+                    start,
+                    end,
+                    hash.as_deref()
+                )
             );
         } else {
             let content = client.get_file(path).await?;
@@ -641,8 +655,13 @@ async fn main() -> Result<()> {
                 println!("### {category}\n");
                 for r in group {
                     println!(
-                        "- {}:{} — https://searchfox.org/{}/source/{}#{}",
-                        r.path, r.line_number, args.repo, r.path, r.line_number
+                        "- {}:{} — {}/{}/source/{}#{}",
+                        r.path,
+                        r.line_number,
+                        client.base_url(),
+                        args.repo,
+                        r.path,
+                        r.line_number
                     );
                 }
                 println!();
@@ -665,6 +684,7 @@ async fn main() -> Result<()> {
                 println!(
                     "{}",
                     generate_link(
+                        client.base_url(),
                         &client.repo,
                         &result.path,
                         result.line_number,
@@ -746,6 +766,7 @@ async fn main() -> Result<()> {
 }
 
 fn generate_link(
+    base_url: &str,
     repo: &str,
     path: &str,
     start_line: usize,
@@ -761,14 +782,8 @@ fn generate_link(
     };
     let rev_repo = searchfox_url_repo(repo);
     match hash {
-        Some(h) => format!(
-            "https://searchfox.org/{}/rev/{}/{}{}",
-            rev_repo, h, path, fragment
-        ),
-        None => format!(
-            "https://searchfox.org/{}/source/{}{}",
-            rev_repo, path, fragment
-        ),
+        Some(h) => format!("{}/{}/rev/{}/{}{}", base_url, rev_repo, h, path, fragment),
+        None => format!("{}/{}/source/{}{}", base_url, rev_repo, path, fragment),
     }
 }
 

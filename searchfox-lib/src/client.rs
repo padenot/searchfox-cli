@@ -22,11 +22,14 @@ impl SearchfoxClient {
             crate::cache::prune(&conn);
             std::sync::Mutex::new(conn)
         });
+        let base_url = std::env::var("SEARCHFOX_BASE_URL")
+            .map(|v| v.trim_end_matches('/').to_string())
+            .unwrap_or_else(|_| "https://searchfox.org".to_string());
         Ok(Self {
             client,
             repo,
             log_requests,
-            base_url: "https://searchfox.org".to_string(),
+            base_url,
             request_counter: std::sync::atomic::AtomicUsize::new(0),
             cache,
             cache_enabled: true,
@@ -133,15 +136,16 @@ impl SearchfoxClient {
         }
 
         eprintln!(
-            "[PING] Testing network latency to searchfox.org (ICMP ping disabled, using HTTP HEAD)..."
+            "[PING] Testing network latency to {} (ICMP ping disabled, using HTTP HEAD)...",
+            self.base_url
         );
 
-        let ping_url = "https://searchfox.org/";
+        let ping_url = format!("{}/", self.base_url);
         let start = Instant::now();
 
         let response = self
             .client
-            .head(ping_url)
+            .head(&ping_url)
             .timeout(Duration::from_secs(10))
             .send()
             .await?;
@@ -264,6 +268,10 @@ impl SearchfoxClient {
 
     pub fn client(&self) -> &Client {
         &self.client
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     pub fn set_cache_enabled(&mut self, enabled: bool) {

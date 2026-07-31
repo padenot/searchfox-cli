@@ -262,10 +262,7 @@ impl SearchfoxClient {
             anyhow::bail!("No call graph query specified");
         };
 
-        let mut url = Url::parse(&format!(
-            "https://searchfox.org/{}/query/default",
-            self.repo
-        ))?;
+        let mut url = Url::parse(&format!("{}/{}/query/default", self.base_url, self.repo))?;
         url.query_pairs_mut().append_pair("q", &query_string);
 
         let response = self.get(url).await?;

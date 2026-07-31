@@ -188,7 +188,7 @@ impl SearchfoxClient {
     pub async fn search(&self, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         let query = options.build_query();
 
-        let mut url = Url::parse(&format!("https://searchfox.org/{}/search", self.repo))?;
+        let mut url = Url::parse(&format!("{}/{}/search", self.base_url, self.repo))?;
         url.query_pairs_mut()
             .append_pair("q", &query)
             .append_pair("case", if options.case { "true" } else { "false" })
@@ -334,7 +334,7 @@ impl SearchfoxClient {
             symbol.to_string()
         };
         let query = format!("id:{search_symbol}");
-        let mut url = Url::parse(&format!("https://searchfox.org/{}/search", self.repo))?;
+        let mut url = Url::parse(&format!("{}/{}/search", self.base_url, self.repo))?;
         url.query_pairs_mut().append_pair("q", &query);
         if let Some(path) = path_filter {
             url.query_pairs_mut().append_pair("path", path);

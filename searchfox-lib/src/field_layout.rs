@@ -249,10 +249,7 @@ impl SearchfoxClient {
     pub async fn search_field_layout(&self, query: &FieldLayoutQuery) -> Result<serde_json::Value> {
         let query_string = format!("field-layout:'{}'", query.class_name);
 
-        let mut url = Url::parse(&format!(
-            "https://searchfox.org/{}/query/default",
-            self.repo
-        ))?;
+        let mut url = Url::parse(&format!("{}/{}/query/default", self.base_url, self.repo))?;
         url.query_pairs_mut().append_pair("q", &query_string);
 
         let response = self.get(url).await?;
