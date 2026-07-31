@@ -100,11 +100,11 @@ async fn find_definition_returns_result() {
 #[tokio::test]
 async fn find_definition_c_function_without_namespace() {
     let result = client()
-        .find_and_display_definition("wasapi_get_min_latency", None, &default_opts())
+        .find_and_display_definition("cubeb_stream_start", None, &default_opts())
         .await
         .unwrap();
     assert!(!result.is_empty());
-    assert!(result.contains("wasapi_get_min_latency"));
+    assert!(result.contains("cubeb_stream_start"));
 }
 
 #[tokio::test]
