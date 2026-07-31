@@ -1,56 +1,5 @@
 use crate::types::Line;
 
-pub fn is_mozilla_repository() -> bool {
-    std::path::Path::new("./mach").exists()
-}
-
-pub fn read_local_file(file_path: &str) -> Option<String> {
-    if let Ok(content) = std::fs::read_to_string(file_path) {
-        return Some(content);
-    }
-    if let Ok(content) = std::fs::read_to_string(format!("./{file_path}")) {
-        return Some(content);
-    }
-    None
-}
-
-pub fn find_symbol_in_local_content(
-    content: &str,
-    expected_line: usize,
-    symbol: &str,
-) -> Option<usize> {
-    let lines: Vec<&str> = content.lines().collect();
-
-    if expected_line > 0 && expected_line <= lines.len() {
-        let line_idx = expected_line - 1;
-        if lines[line_idx].contains(symbol)
-            || (symbol.contains("::")
-                && lines[line_idx].contains(symbol.split("::").last().unwrap_or("")))
-        {
-            return Some(expected_line);
-        }
-    }
-
-    let search_range = 50;
-    let start = expected_line.saturating_sub(search_range);
-    let end = std::cmp::min(expected_line + search_range, lines.len());
-
-    for i in start..end {
-        if i < lines.len() {
-            let line = lines[i];
-            if (line.contains(symbol)
-                || (symbol.contains("::")
-                    && line.contains(symbol.split("::").last().unwrap_or(""))))
-                && (line.contains("::") || line.contains("(") || line.contains("="))
-            {
-                return Some(i + 1);
-            }
-        }
-    }
-
-    None
-}
-
 pub fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec<String>) {
     let start_idx = start_line.saturating_sub(1);
     if start_idx >= lines.len() {

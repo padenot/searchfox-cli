@@ -439,7 +439,7 @@ async fn main() -> Result<()> {
 
             for (file_path, line_number) in &file_locations {
                 if let Ok(context) = client
-                    .get_definition_context(file_path, *line_number, context_lines, Some(symbol))
+                    .get_definition_context(file_path, *line_number, context_lines)
                     .await
                 {
                     if let Some((start, end)) = extract_line_range_from_output(&context) {
