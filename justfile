@@ -6,7 +6,7 @@ release version:
 
     # Bump versions
     sed -i '' "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml pyproject.toml
-    sed -i '' "s/searchfox-lib = { version = \".*\"/searchfox-lib = { version = \"{{version}}\"/" searchfox-cli/Cargo.toml searchfox-py/Cargo.toml
+    sed -i '' "s/searchfox-lib = { version = \"[^\"]*\"/searchfox-lib = { version = \"{{version}}\"/" searchfox-cli/Cargo.toml searchfox-py/Cargo.toml
 
     cargo fmt
     cargo clippy --all-targets --all-features
