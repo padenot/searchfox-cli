@@ -14,6 +14,8 @@ A command-line interface for searching Mozilla codebases using searchfox.org, wr
 
 Also available as a Rust library (`searchfox-lib`) and Python package (`searchfox-py`).
 
+Set `SEARCHFOX_BASE_URL` to point at a different server (e.g. a local mozsearch instance: `SEARCHFOX_BASE_URL=http://127.0.0.1:16995`); defaults to `https://searchfox.org`.
+
 ## Features
 
 - Search across multiple Mozilla repositories (mozilla-central, beta, release, ESR branches, comm-central)

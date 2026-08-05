@@ -9,7 +9,8 @@ use std::collections::HashMap;
 impl SearchfoxClient {
     pub async fn get_head_hash(&self) -> anyhow::Result<String> {
         let url = format!(
-            "https://searchfox.org/{}/commit-info/HEAD",
+            "{}/{}/commit-info/HEAD",
+            self.base_url,
             searchfox_url_repo(&self.repo)
         );
         let response = self.get_raw(&url).await?;
@@ -31,7 +32,8 @@ impl SearchfoxClient {
             .filter(|h| h.len() == 40 && h.chars().all(|c| c.is_ascii_hexdigit()))
         {
             let hgrev_url = format!(
-                "https://searchfox.org/{}/hgrev/{}",
+                "{}/{}/hgrev/{}",
+                self.base_url,
                 searchfox_url_repo(&self.repo),
                 hg_hash
             );
@@ -66,7 +68,7 @@ impl SearchfoxClient {
         lines: &[usize],
     ) -> Result<HashMap<usize, BlameInfo>> {
         // Fetch the HTML page for the file
-        let url = format!("https://searchfox.org/{}/source/{}", self.repo, path);
+        let url = format!("{}/{}/source/{}", self.base_url, self.repo, path);
         let html = self.get_html(&url).await?;
 
         // Parse blame data from HTML
@@ -135,10 +137,7 @@ impl SearchfoxClient {
 
         for chunk in revs.chunks(BATCH_SIZE) {
             let revs_str = chunk.join(",");
-            let url = format!(
-                "https://searchfox.org/{}/commit-info/{}",
-                self.repo, revs_str
-            );
+            let url = format!("{}/{}/commit-info/{}", self.base_url, self.repo, revs_str);
 
             let response = self.get_raw(&url).await?;
             let mut commit_infos: Vec<CommitInfo> = serde_json::from_str(&response)?;
