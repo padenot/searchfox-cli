@@ -1,11 +1,14 @@
 # Release a new version: just release 0.19.0
-# Requires CARGO_REGISTRY_TOKEN and PYPI_TOKEN env vars.
+# Requires crates.io credentials (CARGO_REGISTRY_TOKEN or 'cargo login').
+# PyPI wheels are published by CI on tag push.
 release version:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
-        echo "error: CARGO_REGISTRY_TOKEN is not set; refusing to start a release" >&2
+    # Fail before the irreversible commit/tag/push if we can't publish afterwards.
+    if [ -z "${CARGO_REGISTRY_TOKEN:-}" ] && ! grep -q token "${CARGO_HOME:-$HOME/.cargo}/credentials.toml" 2>/dev/null; then
+        echo "error: no crates.io credentials (set CARGO_REGISTRY_TOKEN or run 'cargo login')" >&2
+        echo "       refusing to start a release that can't be published" >&2
         exit 1
     fi
 
