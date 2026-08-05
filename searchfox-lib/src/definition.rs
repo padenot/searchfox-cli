@@ -72,6 +72,7 @@ impl SearchfoxClient {
         });
 
         let mut results = Vec::new();
+        let mut last_error = None;
         for (file_path, line_number) in &file_locations {
             let context_lines = if is_ctor { 2 } else { 10 };
             match self
@@ -85,11 +86,20 @@ impl SearchfoxClient {
                 }
                 Err(e) => {
                     error!("Could not fetch context: {e}");
+                    last_error = Some(e);
                 }
             }
         }
 
         if results.is_empty() {
+            // Locations were found, so an empty result here means every context
+            // fetch failed. Surface that rather than reporting a missing symbol.
+            if let Some(e) = last_error {
+                return Err(e.context(format!(
+                    "found {} location(s) for '{symbol}' but could not fetch any file contents",
+                    file_locations.len()
+                )));
+            }
             error!("No definition found for symbol '{symbol}'");
             Ok(String::new())
         } else if results.len() == 1 {
