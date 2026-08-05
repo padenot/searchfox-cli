@@ -213,6 +213,11 @@ pub fn is_potential_definition(line: &Line, query: &str) -> bool {
 }
 
 pub fn searchfox_url_repo(repo: &str) -> &str {
+    // The firefox-* renames only exist on searchfox.org; a server behind
+    // SEARCHFOX_BASE_URL serves trees under their configured names verbatim.
+    if std::env::var("SEARCHFOX_BASE_URL").is_ok() {
+        return repo;
+    }
     match repo {
         "mozilla-central" => "firefox-main",
         "mozilla-beta" => "firefox-beta",
