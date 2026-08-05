@@ -4,6 +4,11 @@ release version:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+        echo "error: CARGO_REGISTRY_TOKEN is not set; refusing to start a release" >&2
+        exit 1
+    fi
+
     # Bump versions
     sed -i '' "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml pyproject.toml
     sed -i '' "s/searchfox-lib = { version = \"[^\"]*\"/searchfox-lib = { version = \"{{version}}\"/" searchfox-cli/Cargo.toml searchfox-py/Cargo.toml
@@ -18,8 +23,8 @@ release version:
     git push origin main
     git push origin "v{{version}}"
 
-    CARGO_REGISTRY_TOKEN="${CARGO_REGISTRY_TOKEN}" cargo publish -p searchfox-lib
-    CARGO_REGISTRY_TOKEN="${CARGO_REGISTRY_TOKEN}" cargo publish -p searchfox-cli
+    cargo publish -p searchfox-lib
+    cargo publish -p searchfox-cli
 
     echo "Python wheels will be built and published to PyPI by CI on tag push."
 
