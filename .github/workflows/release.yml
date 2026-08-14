@@ -121,6 +121,8 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --manifest-path searchfox-py/Cargo.toml --out dist
           manylinux: auto
+        env:
+          CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
 
       - uses: actions/upload-artifact@v4
         with:
