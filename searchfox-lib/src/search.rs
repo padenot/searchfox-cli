@@ -41,6 +41,24 @@ fn category_matches_symbol(category_name: &str, symbol: &str, case_sensitive: bo
     category_symbol == symbol || category_symbol.ends_with(&format!("::{symbol}"))
 }
 
+fn category_matches_constructor(category_name: &str, symbol: &str, case_sensitive: bool) -> bool {
+    let Some(symbol_start) = category_name.find('(') else {
+        return false;
+    };
+    let Some(symbol_end) = category_name.rfind(')') else {
+        return false;
+    };
+
+    let category_symbol = &category_name[symbol_start + 1..symbol_end];
+    let (category_symbol, symbol) = if case_sensitive {
+        (category_symbol.to_string(), symbol.to_string())
+    } else {
+        (category_symbol.to_lowercase(), symbol.to_lowercase())
+    };
+
+    category_symbol == symbol || category_symbol.starts_with(&format!("{symbol}<"))
+}
+
 /// Filters search-result categories to matching source locations.
 ///
 /// Categories must contain `search_type` and identify `symbol`; locations that
@@ -404,7 +422,13 @@ impl SearchfoxClient {
         } else {
             symbol.to_string()
         };
-        let query = format!("id:{search_symbol}");
+        // Exact identifier queries omit templated constructor categories such
+        // as `nsTArray::nsTArray<E>`, so constructors use the full query.
+        let query = if is_ctor {
+            symbol.to_string()
+        } else {
+            format!("id:{search_symbol}")
+        };
         let mut url = Url::parse(&format!("{}/{}/search", self.base_url, self.repo))?;
         url.query_pairs_mut().append_pair("q", &query);
         if let Some(path) = path_filter {
@@ -546,16 +570,10 @@ impl SearchfoxClient {
                 }
 
                 if is_ctor {
-                    let ctor_method_part = if let Some(colon_pos) = symbol.rfind("::") {
-                        &symbol[colon_pos + 2..]
-                    } else {
-                        symbol
-                    };
-
                     let mut all_ctor_lines = Vec::new();
                     for (category_name, category_value) in categories {
                         if category_name.contains("Definitions")
-                            && category_name.ends_with(&format!("::{ctor_method_part})"))
+                            && category_matches_constructor(category_name, symbol, false)
                         {
                             debug!("Found constructor category: {}", category_name);
                             if let Some(files_array) = category_value.as_array() {
@@ -567,18 +585,13 @@ impl SearchfoxClient {
                                             }
 
                                             for line in file.lines {
-                                                if crate::utils::is_potential_definition(
-                                                    &line, symbol,
-                                                ) {
-                                                    debug!(
-                                                        "Found constructor definition: {}:{} - {}",
-                                                        file.path,
-                                                        line.lno,
-                                                        line.line.trim()
-                                                    );
-                                                    all_ctor_lines
-                                                        .push((file.path.clone(), line.lno));
-                                                }
+                                                debug!(
+                                                    "Found constructor definition: {}:{} - {}",
+                                                    file.path,
+                                                    line.lno,
+                                                    line.line.trim()
+                                                );
+                                                all_ctor_lines.push((file.path.clone(), line.lno));
                                             }
                                         }
                                         Err(_) => continue,
@@ -671,6 +684,65 @@ mod tests {
             "IDBCursor::Continue",
             false,
         ));
+    }
+
+    #[test]
+    fn category_matches_templated_constructor() {
+        assert!(category_matches_constructor(
+            "Definitions (nsTArray::nsTArray<E>)",
+            "nsTArray::nsTArray",
+            false,
+        ));
+        assert!(!category_matches_constructor(
+            "Definitions (nsTArray::nsTArrayExtra<E>)",
+            "nsTArray::nsTArray",
+            false,
+        ));
+    }
+
+    #[tokio::test]
+    async fn templated_constructor_search_uses_full_symbol_query() {
+        let server = MockServer::start().await;
+        let response = json!({
+            "normal": {
+                "Definitions (nsTArray::nsTArray<E>)": [{
+                    "path": "xpcom/ds/nsTArray.h",
+                    "lines": [{
+                        "lno": 2636,
+                        "line": "explicit nsTArray(size_type aCapacity) {}"
+                    }]
+                }],
+                "Definitions (nsTArray::nsTArray<T>)": [{
+                    "path": "xpcom/ds/nsTArray.h",
+                    "lines": [{
+                        "lno": 2635,
+                        "line": "constexpr nsTArray() = default;"
+                    }]
+                }]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/mozilla-central/search"))
+            .and(query_param("q", "nsTArray::nsTArray"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
+
+        let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
+        let mut locations = client
+            .find_symbol_locations("nsTArray::nsTArray", None, &SearchOptions::default())
+            .await
+            .unwrap();
+        locations.sort();
+
+        assert_eq!(
+            locations,
+            vec![
+                ("xpcom/ds/nsTArray.h".to_string(), 2635),
+                ("xpcom/ds/nsTArray.h".to_string(), 2636),
+            ]
+        );
     }
 
     #[tokio::test]
