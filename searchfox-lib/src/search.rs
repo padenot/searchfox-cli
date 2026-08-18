@@ -23,6 +23,77 @@ fn extract_class_name_from_constructor(symbol: &str) -> String {
     }
 }
 
+fn category_matches_symbol(category_name: &str, symbol: &str, case_sensitive: bool) -> bool {
+    let Some(symbol_start) = category_name.find('(') else {
+        return false;
+    };
+    let Some(symbol_end) = category_name.rfind(')') else {
+        return false;
+    };
+
+    let category_symbol = &category_name[symbol_start + 1..symbol_end];
+    let (category_symbol, symbol) = if case_sensitive {
+        (category_symbol.to_string(), symbol.to_string())
+    } else {
+        (category_symbol.to_lowercase(), symbol.to_lowercase())
+    };
+
+    category_symbol == symbol || category_symbol.ends_with(&format!("::{symbol}"))
+}
+
+/// Filters search-result categories to matching source locations.
+///
+/// Categories must contain `search_type` and identify `symbol`; locations that
+/// do not pass `options`' language filter are omitted. Returns `None` when no
+/// matching locations remain.
+fn filter_category_locations(
+    json: &SearchfoxResponse,
+    search_type: &str,
+    symbol: &str,
+    case_sensitive: bool,
+    options: &SearchOptions,
+) -> Option<Vec<(String, usize)>> {
+    let mut locations = Vec::new();
+
+    for (key, value) in json {
+        if key.starts_with('*') {
+            continue;
+        }
+
+        let Some(categories) = value.as_object() else {
+            continue;
+        };
+
+        for (category_name, category_value) in categories {
+            if !category_name.contains(search_type)
+                || !category_matches_symbol(category_name, symbol, case_sensitive)
+            {
+                continue;
+            }
+
+            let Some(files_array) = category_value.as_array() else {
+                continue;
+            };
+
+            for file in files_array {
+                let Ok(file) = serde_json::from_value::<File>(file.clone()) else {
+                    continue;
+                };
+
+                if !options.matches_language_filter(&file.path) {
+                    continue;
+                }
+
+                for line in file.lines {
+                    locations.push((file.path.clone(), line.lno));
+                }
+            }
+        }
+    }
+
+    (!locations.is_empty()).then_some(locations)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
     Cpp,
@@ -352,6 +423,33 @@ impl SearchfoxClient {
 
         debug!("Analyzing search results...");
 
+        let symbol_name = symbol.strip_prefix("id:").unwrap_or(symbol);
+        let is_method_search = symbol_name.contains("::") && !is_ctor;
+
+        // Searchfox returns categories from several top-level buckets (normal,
+        // test, thirdparty, ...). Search all of them before falling back to a
+        // case-insensitive category, otherwise a fallback from a later bucket
+        // can replace an exact match found in an earlier one.
+        if is_method_search {
+            // mozsearch maps WebIDL methods to bare JS #property symbols, which
+            // can make unrelated JavaScript definitions look like this method.
+            // For virtual methods, the concrete implementation is in
+            // "Overridden By" while "Definitions" may only be the declaration.
+            for search_type in ["Overridden By", "Definitions", "Declarations"] {
+                for case_sensitive in [true, false] {
+                    if let Some(locations) = filter_category_locations(
+                        &json,
+                        search_type,
+                        symbol_name,
+                        case_sensitive,
+                        options,
+                    ) {
+                        return Ok(locations);
+                    }
+                }
+            }
+        }
+
         for (key, value) in &json {
             if key.starts_with('*') {
                 continue;
@@ -389,9 +487,6 @@ impl SearchfoxClient {
                     }
                 }
             } else if let Some(categories) = value.as_object() {
-                let symbol_name = symbol.strip_prefix("id:").unwrap_or(symbol);
-                let is_method_search = symbol_name.contains("::") && !is_ctor;
-
                 if !is_method_search && !is_ctor {
                     for (category_name, category_value) in categories {
                         let is_class_def_category = category_name.starts_with("Definitions (")
@@ -499,7 +594,7 @@ impl SearchfoxClient {
                 }
 
                 let search_order = if is_method_search || is_ctor {
-                    vec!["Definitions", "Declarations"]
+                    vec!["Overridden By", "Definitions", "Declarations"]
                 } else {
                     vec!["Declarations", "Definitions"]
                 };
@@ -507,10 +602,7 @@ impl SearchfoxClient {
                 for search_type in search_order {
                     for (category_name, category_value) in categories {
                         if category_name.contains(search_type)
-                            && (category_name.contains(symbol_name)
-                                || category_name
-                                    .to_lowercase()
-                                    .contains(&symbol_name.to_lowercase()))
+                            && category_matches_symbol(category_name, symbol_name, false)
                         {
                             if let Some(files_array) = category_value.as_array() {
                                 for file in files_array {
@@ -547,5 +639,105 @@ impl SearchfoxClient {
         }
 
         Ok(file_locations)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn category_matches_exact_symbol_with_namespace() {
+        assert!(category_matches_symbol(
+            "Definitions (mozilla::dom::IDBCursor::Continue)",
+            "IDBCursor::Continue",
+            true,
+        ));
+        assert!(!category_matches_symbol(
+            "Definitions (IDBCursor::continue)",
+            "IDBCursor::Continue",
+            true,
+        ));
+        assert!(category_matches_symbol(
+            "Definitions (IDBCursor::continue)",
+            "IDBCursor::Continue",
+            false,
+        ));
+        assert!(!category_matches_symbol(
+            "Definitions (IDBCursor::ContinuePrimaryKey)",
+            "IDBCursor::Continue",
+            false,
+        ));
+    }
+
+    #[tokio::test]
+    async fn implementation_category_precedes_declaration_and_case_insensitive_match() {
+        let server = MockServer::start().await;
+        let response = json!({
+            "normal": {
+                "Definitions (IDBCursor::continue)": [{
+                    "path": "devtools/client/shared/sourceeditor/codemirror/codemirror.bundle.js",
+                    "lines": [{
+                        "lno": 1,
+                        "line": "var CodeMirror = function() { continue: true; }"
+                    }]
+                }],
+                "Definitions (mozilla::dom::IDBCursor::Continue)": [{
+                    "path": "dom/indexedDB/IDBCursor.h",
+                    "lines": [{
+                        "lno": 127,
+                        "line": "virtual void Continue(JSContext* aCx, JS::Handle<JS::Value> aKey,"
+                    }]
+                }],
+                "Overridden By (mozilla::dom::IDBCursor::Continue)": [{
+                    "path": "dom/indexedDB/IDBCursor.cpp",
+                    "lines": [{
+                        "lno": 336,
+                        "line": "void IDBTypedCursor<CursorType>::Continue(JSContext* const aCx,",
+                        "upsearch": "symbol:_ZN7mozilla3dom14IDBTypedCursor8ContinueEP9JSContext"
+                    }]
+                }, {
+                    "path": "dom/indexedDB/IDBAnotherCursor.cpp",
+                    "lines": [{
+                        "lno": 400,
+                        "line": "void IDBAnotherCursor::Continue(JSContext* const aCx,",
+                        "upsearch": "symbol:_ZN7mozilla3dom16IDBAnotherCursor8ContinueEP9JSContext"
+                    }]
+                }]
+            },
+            "thirdparty": {
+                "Definitions (IDBCursor::continue)": [{
+                    "path": "devtools/client/shared/sourceeditor/codemirror/mode/javascript/javascript.js",
+                    "lines": [{
+                        "lno": 31,
+                        "line": "\"continue\": kw(\"continue\")"
+                    }]
+                }]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/mozilla-central/search"))
+            .and(query_param("q", "id:IDBCursor::Continue"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
+
+        let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
+        let locations = client
+            .find_symbol_locations("IDBCursor::Continue", None, &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            locations,
+            vec![
+                ("dom/indexedDB/IDBCursor.cpp".to_string(), 336),
+                ("dom/indexedDB/IDBAnotherCursor.cpp".to_string(), 400),
+            ]
+        );
     }
 }
