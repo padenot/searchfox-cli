@@ -450,26 +450,37 @@ impl SearchfoxClient {
         let symbol_name = symbol.strip_prefix("id:").unwrap_or(symbol);
         let is_method_search = symbol_name.contains("::") && !is_ctor;
 
-        // Searchfox returns categories from several top-level buckets (normal,
-        // test, thirdparty, ...). Search all of them before falling back to a
-        // case-insensitive category, otherwise a fallback from a later bucket
-        // can replace an exact match found in an earlier one.
+        // Try case-sensitive matches across all result buckets before falling back.
         if is_method_search {
-            // mozsearch maps WebIDL methods to bare JS #property symbols, which
-            // can make unrelated JavaScript definitions look like this method.
-            // For virtual methods, the concrete implementation is in
-            // "Overridden By" while "Definitions" may only be the declaration.
-            for search_type in ["Overridden By", "Definitions", "Declarations"] {
-                for case_sensitive in [true, false] {
-                    if let Some(locations) = filter_category_locations(
+            for case_sensitive in [true, false] {
+                let find = |search_type| {
+                    filter_category_locations(
                         &json,
                         search_type,
                         symbol_name,
                         case_sensitive,
                         options,
-                    ) {
-                        return Ok(locations);
+                    )
+                };
+
+                // When both exist, use overrides only if every definition is
+                // detected as a pure-virtual declaration.
+                match (find("Definitions"), find("Overridden By")) {
+                    (Some(definitions), Some(overrides)) => {
+                        let implementations =
+                            self.without_pure_virtual_declarations(definitions).await;
+                        return Ok(if implementations.is_empty() {
+                            overrides
+                        } else {
+                            implementations
+                        });
                     }
+                    (Some(locations), None) | (None, Some(locations)) => return Ok(locations),
+                    (None, None) => {}
+                }
+
+                if let Some(locations) = find("Declarations") {
+                    return Ok(locations);
                 }
             }
         }
@@ -607,7 +618,7 @@ impl SearchfoxClient {
                 }
 
                 let search_order = if is_method_search || is_ctor {
-                    vec!["Overridden By", "Definitions", "Declarations"]
+                    vec!["Definitions", "Declarations"]
                 } else {
                     vec!["Declarations", "Definitions"]
                 };
@@ -653,6 +664,33 @@ impl SearchfoxClient {
 
         Ok(file_locations)
     }
+
+    /// Drops detected pure-virtual declarations; keeps locations on fetch errors.
+    async fn without_pure_virtual_declarations(
+        &self,
+        locations: Vec<(String, usize)>,
+    ) -> Vec<(String, usize)> {
+        let mut implementations = Vec::new();
+        for (path, lno) in locations {
+            let is_pure_virtual = match self.get_file(&path).await {
+                Ok(content) => {
+                    let lines: Vec<&str> = content.lines().collect();
+                    crate::utils::is_pure_virtual_declaration(&lines, lno)
+                }
+                Err(e) => {
+                    debug!("Could not fetch {path} to check for a body: {e}");
+                    false
+                }
+            };
+
+            if is_pure_virtual {
+                debug!("Skipping pure-virtual declaration: {path}:{lno}");
+            } else {
+                implementations.push((path, lno));
+            }
+        }
+        implementations
+    }
 }
 
 #[cfg(test)]
@@ -661,6 +699,26 @@ mod tests {
     use serde_json::json;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Serves `lines` as the source of `file_path`, starting at `first_line`.
+    async fn mount_source(server: &MockServer, file_path: &str, first_line: usize, lines: &[&str]) {
+        let mut html = String::from("<html><body>");
+        let padding = std::iter::repeat_n("", first_line - 1);
+        for line in padding.chain(lines.iter().copied()) {
+            let line = line
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            html.push_str(&format!("<code class=\"source-line\">{line}\n</code>"));
+        }
+        html.push_str("</body></html>");
+
+        Mock::given(method("GET"))
+            .and(path(format!("/firefox-main/source/{file_path}")))
+            .respond_with(ResponseTemplate::new(200).set_body_string(html))
+            .mount(server)
+            .await;
+    }
 
     #[test]
     fn category_matches_exact_symbol_with_namespace() {
@@ -797,6 +855,16 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(response))
             .mount(&server)
             .await;
+        mount_source(
+            &server,
+            "dom/indexedDB/IDBCursor.h",
+            127,
+            &[
+                "  virtual void Continue(JSContext* aCx, JS::Handle<JS::Value> aKey,",
+                "                        ErrorResult& aRv) = 0;",
+            ],
+        )
+        .await;
 
         let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
         let locations = client
@@ -809,6 +877,153 @@ mod tests {
             vec![
                 ("dom/indexedDB/IDBCursor.cpp".to_string(), 336),
                 ("dom/indexedDB/IDBAnotherCursor.cpp".to_string(), 400),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn virtual_method_with_body_precedes_overrides() {
+        let server = MockServer::start().await;
+        let response = json!({
+            "normal": {
+                "Definitions (nsIFrame::Reflow)": [{
+                    "path": "layout/generic/nsIFrame.cpp",
+                    "lines": [{
+                        "lno": 7696,
+                        "line": "void nsIFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aDesiredSize,"
+                    }]
+                }],
+                "Declarations (nsIFrame::Reflow)": [{
+                    "path": "layout/generic/nsIFrame.h",
+                    "lines": [{
+                        "lno": 3224,
+                        "line": "virtual void Reflow(nsPresContext* aPresContext, ReflowOutput& aReflowOutput,"
+                    }]
+                }],
+                "Overridden By (nsIFrame::Reflow)": [{
+                    "path": "layout/forms/nsCheckboxRadioFrame.cpp",
+                    "lines": [{
+                        "lno": 102,
+                        "line": "void nsCheckboxRadioFrame::Reflow(nsPresContext* aPresContext,"
+                    }]
+                }]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/mozilla-central/search"))
+            .and(query_param("q", "id:nsIFrame::Reflow"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
+        mount_source(
+            &server,
+            "layout/generic/nsIFrame.cpp",
+            7696,
+            &[
+                "void nsIFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aDesiredSize,",
+                "                      const ReflowInput& aReflowInput,",
+                "                      nsReflowStatus& aStatus) {",
+                "  aDesiredSize.ClearSize();",
+                "}",
+            ],
+        )
+        .await;
+
+        let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
+        let locations = client
+            .find_symbol_locations("nsIFrame::Reflow", None, &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            locations,
+            vec![("layout/generic/nsIFrame.cpp".to_string(), 7696)]
+        );
+    }
+
+    #[tokio::test]
+    async fn pure_virtual_overload_is_dropped_from_definitions_with_bodies() {
+        let server = MockServer::start().await;
+        let response = json!({
+            "normal": {
+                "Definitions (mozilla::dom::EventTarget::DispatchEvent)": [{
+                    "path": "dom/events/EventTarget.cpp",
+                    "lines": [{
+                        "lno": 210,
+                        "line": "void EventTarget::DispatchEvent(Event& aEvent) {"
+                    }, {
+                        "lno": 214,
+                        "line": "void EventTarget::DispatchEvent(Event& aEvent, ErrorResult& aRv) {"
+                    }]
+                }, {
+                    "path": "dom/events/EventTarget.h",
+                    "lines": [{
+                        "lno": 188,
+                        "line": "MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual bool DispatchEvent(Event& aEvent,"
+                    }]
+                }],
+                "Overridden By (mozilla::dom::EventTarget::DispatchEvent)": [{
+                    "path": "dom/base/nsINode.cpp",
+                    "lines": [{
+                        "lno": 1416,
+                        "line": "bool nsINode::DispatchEvent(Event& aEvent, CallerType aCallerType,"
+                    }]
+                }]
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/mozilla-central/search"))
+            .and(query_param(
+                "q",
+                "id:mozilla::dom::EventTarget::DispatchEvent",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(response))
+            .mount(&server)
+            .await;
+        mount_source(
+            &server,
+            "dom/events/EventTarget.cpp",
+            210,
+            &[
+                "void EventTarget::DispatchEvent(Event& aEvent) {",
+                "  (void)DispatchEvent(aEvent, CallerType::NonSystem, IgnoreErrors());",
+                "}",
+                "",
+                "void EventTarget::DispatchEvent(Event& aEvent, ErrorResult& aRv) {",
+                "  (void)DispatchEvent(aEvent, CallerType::NonSystem, aRv);",
+                "}",
+            ],
+        )
+        .await;
+        mount_source(
+            &server,
+            "dom/events/EventTarget.h",
+            188,
+            &[
+                "  MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual bool DispatchEvent(Event& aEvent,",
+                "                                                         CallerType aCallerType,",
+                "                                                         ErrorResult& aRv) = 0;",
+            ],
+        )
+        .await;
+
+        let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
+        let locations = client
+            .find_symbol_locations(
+                "mozilla::dom::EventTarget::DispatchEvent",
+                None,
+                &SearchOptions::default(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            locations,
+            vec![
+                ("dom/events/EventTarget.cpp".to_string(), 210),
+                ("dom/events/EventTarget.cpp".to_string(), 214),
             ]
         );
     }
