@@ -168,6 +168,80 @@ pub fn extract_complete_method(lines: &[&str], start_line: usize) -> (usize, Vec
     (start_line, result_lines)
 }
 
+/// Heuristically checks for `= 0;` within 25 lines of the 1-based `start_line`.
+pub fn is_pure_virtual_declaration(lines: &[&str], start_line: usize) -> bool {
+    let start_idx = start_line.saturating_sub(1);
+    let mut paren_depth = 0usize;
+    // Exclude default arguments such as `int flags = 0`.
+    let mut top_level = String::new();
+    let mut in_multi_comment = false;
+
+    for line in lines.iter().skip(start_idx).take(25) {
+        let chars: Vec<char> = line.chars().collect();
+        // Opening quote, if inside a literal.
+        let mut literal = None;
+        let mut j = 0;
+        while j < chars.len() {
+            let ch = chars[j];
+            let next_ch = chars.get(j + 1).copied();
+
+            if in_multi_comment {
+                if ch == '*' && next_ch == Some('/') {
+                    in_multi_comment = false;
+                    j += 1;
+                }
+                j += 1;
+                continue;
+            }
+
+            if let Some(quote) = literal {
+                if ch == '\\' {
+                    j += 1;
+                } else if ch == quote {
+                    literal = None;
+                }
+                j += 1;
+                continue;
+            }
+
+            match ch {
+                '"' => literal = Some('"'),
+                '\'' if !is_digit_separator(&chars, j) => literal = Some('\''),
+                '/' if next_ch == Some('/') => break,
+                '/' if next_ch == Some('*') => {
+                    in_multi_comment = true;
+                    j += 1;
+                }
+                '(' => paren_depth += 1,
+                ')' => paren_depth = paren_depth.saturating_sub(1),
+                '{' if paren_depth == 0 => return false,
+                ';' if paren_depth == 0 => {
+                    let code: String = top_level.chars().filter(|c| !c.is_whitespace()).collect();
+                    return code.ends_with("=0");
+                }
+                _ if paren_depth == 0 => top_level.push(ch),
+                _ => {}
+            }
+            j += 1;
+        }
+    }
+
+    false
+}
+
+/// Treats a quote as a digit separator if the preceding token starts with a
+/// digit, ignoring leading dots (e.g. `.5'5`).
+fn is_digit_separator(chars: &[char], quote_idx: usize) -> bool {
+    let token_start = chars[..quote_idx]
+        .iter()
+        .rposition(|&c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '\'' | '.')))
+        .map_or(0, |i| i + 1);
+    chars[token_start..quote_idx]
+        .iter()
+        .find(|&&c| c != '.')
+        .is_some_and(|c| c.is_ascii_digit())
+}
+
 pub fn is_potential_definition(line: &Line, query: &str) -> bool {
     let line_text = &line.line;
     let line_lower = line_text.to_lowercase();
@@ -225,5 +299,83 @@ pub fn searchfox_url_repo(repo: &str) -> &str {
         "mozilla-esr128" => "firefox-esr128",
         "mozilla-esr140" => "firefox-esr140",
         _ => repo,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pure_virtual_specifier_on_a_later_line() {
+        let lines = [
+            "  virtual void Continue(JSContext* aCx, JS::Handle<JS::Value> aKey,",
+            "                        ErrorResult& aRv) = 0;",
+        ];
+        assert!(is_pure_virtual_declaration(&lines, 1));
+        assert!(is_pure_virtual_declaration(
+            &["  NS_IMETHOD GetFoo(bool* aFoo) const override=0;"],
+            1
+        ));
+    }
+
+    #[test]
+    fn methods_with_bodies_are_not_pure_virtual() {
+        assert!(!is_pure_virtual_declaration(
+            &["  virtual nsContainerFrame* GetContentInsertionFrame() { return nullptr; }"],
+            1
+        ));
+        let lines = [
+            "void nsIFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aDesiredSize,",
+            "                      const ReflowInput& aReflowInput, // = 0;",
+            "                      nsReflowStatus& aStatus) {",
+            "  aDesiredSize.ClearSize();",
+            "}",
+        ];
+        assert!(!is_pure_virtual_declaration(&lines, 1));
+    }
+
+    #[test]
+    fn default_argument_is_not_a_pure_specifier() {
+        assert!(!is_pure_virtual_declaration(
+            &["  virtual void Foo(uint32_t aFlags = 0);"],
+            1
+        ));
+        assert!(!is_pure_virtual_declaration(
+            &["  virtual void Foo() /* = 0 */;"],
+            1
+        ));
+    }
+
+    #[test]
+    fn literals_in_default_arguments_are_not_syntax() {
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(char aDelimiter = '(') = 0;"],
+            1
+        ));
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(char aQuote = '\\'', char aClose = ')') = 0;"],
+            1
+        ));
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(const char* aUrl = \"https://a.b/\\\"(\") = 0;"],
+            1
+        ));
+        assert!(!is_pure_virtual_declaration(
+            &["  virtual void Foo(const char* aText = \"= 0;\");"],
+            1
+        ));
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(uint32_t aLimit = 1'000, uint32_t aMask = 0xFF'FF) = 0;"],
+            1
+        ));
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(char8_t aOpen = u8'(', wchar_t aClose = L')') = 0;"],
+            1
+        ));
+        assert!(is_pure_virtual_declaration(
+            &["  virtual void Foo(double aScale = .5'5, double aHex = 0x1.F'Fp1) = 0;"],
+            1
+        ));
     }
 }
