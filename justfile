@@ -5,13 +5,6 @@ release version:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # Fail before the irreversible commit/tag/push if we can't publish afterwards.
-    if [ -z "${CARGO_REGISTRY_TOKEN:-}" ] && ! grep -q token "${CARGO_HOME:-$HOME/.cargo}/credentials.toml" 2>/dev/null; then
-        echo "error: no crates.io credentials (set CARGO_REGISTRY_TOKEN or run 'cargo login')" >&2
-        echo "       refusing to start a release that can't be published" >&2
-        exit 1
-    fi
-
     # Bump versions
     sed -i '' "s/^version = \".*\"/version = \"{{version}}\"/" Cargo.toml pyproject.toml
     sed -i '' "s/searchfox-lib = { version = \"[^\"]*\"/searchfox-lib = { version = \"{{version}}\"/" searchfox-cli/Cargo.toml searchfox-py/Cargo.toml
