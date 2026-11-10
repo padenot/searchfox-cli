@@ -428,6 +428,20 @@ cd searchfox-py && maturin build --release  # Distribution wheel
 
 See `python/examples/` for complete examples.
 
+## Releasing
+
+Maintainers with GitHub write access can run `just release VERSION` from `main`.
+The recipe updates versions, builds, commits, and pushes a `vVERSION` tag.
+GitHub Actions publishes the crates to crates.io using trusted publishing;
+no local crates.io token is needed. The existing release workflow publishes binaries and Searchfox Python wheels.
+`searchfox-lib` is published before `searchfox-cli`.
+
+The **Publish crates** workflow can also be run manually. Leave `dry_run` enabled
+to check authentication and package builds without uploading. To resume a failed
+publication, select its release tag and disable `dry_run`; versions already
+published successfully are skipped. Real uploads require a tag matching the
+version in `Cargo.toml`.
+
 ## License
 
 Licensed under either of

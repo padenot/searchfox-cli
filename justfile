@@ -1,5 +1,5 @@
 # Release a new version: just release 0.19.0
-# Requires crates.io credentials (CARGO_REGISTRY_TOKEN or 'cargo login').
+# Crates are published by GitHub Actions using trusted publishing.
 # PyPI wheels are published by CI on tag push.
 release version:
     #!/usr/bin/env bash
@@ -21,10 +21,7 @@ release version:
     git push origin main
     git push origin "v{{version}}"
 
-    cargo publish -p searchfox-lib
-    cargo publish -p searchfox-cli
-
-    echo "Python wheels will be built and published to PyPI by CI on tag push."
+    echo "GitHub Actions will publish the crates, release binaries, and Python wheels."
 
 # Rebuild the Python bindings and install them into the active virtualenv.
 # Activate your venv first, or pass VIRTUAL_ENV explicitly:
