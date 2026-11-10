@@ -1004,9 +1004,9 @@ dependencies = [
 
 [[package]]
 name = "moz-cli-version-check"
-version = "0.2.4"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef7218c07b5b9ef6c376d35560417b8ac5c232d49037b4069117646690a29dff"
+checksum = "65396638c21ff74975e20d5fd110739821957576c8e97b0390ef281153fa3efb"
 dependencies = [
  "dirs",
  "reqwest",
@@ -1584,9 +1584,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-cli"
-version = "0.20.5"
+version = "0.20.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -1645,7 +1645,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-lib"
-version = "0.20.5"
+version = "0.20.6"
 dependencies = [
  "anyhow",
  "log",
@@ -1664,7 +1664,7 @@ dependencies = [
 
 [[package]]
 name = "searchfox-py"
-version = "0.20.5"
+version = "0.20.6"
 dependencies = [
  "anyhow",
  "pyo3",
@@ -2289,9 +2289,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.7"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f5ee44c96cf55f1b349600768e3ece3a8f26010c05265ab73f945bb1a2eb9d"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]
