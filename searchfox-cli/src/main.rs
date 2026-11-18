@@ -761,7 +761,9 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    version_checker.print_warning();
+    if !is_llm_environment() {
+        version_checker.print_warning();
+    }
     Ok(())
 }
 
