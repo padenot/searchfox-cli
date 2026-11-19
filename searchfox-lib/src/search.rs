@@ -274,6 +274,61 @@ pub struct SearchResult {
 }
 
 impl SearchfoxClient {
+    /// Find indexed definitions with the same unqualified name. These are
+    /// suggestions only: their containing types may differ from the query.
+    pub async fn suggest_definitions(
+        &self,
+        symbol: &str,
+        path_filter: Option<&str>,
+        options: &SearchOptions,
+    ) -> Result<Vec<String>> {
+        let name = symbol
+            .rsplit("::")
+            .next()
+            .unwrap_or(symbol)
+            .rsplit('.')
+            .next()
+            .unwrap_or(symbol);
+        if name == symbol || name.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut url = Url::parse(&format!("{}/{}/search", self.base_url, self.repo))?;
+        url.query_pairs_mut()
+            .append_pair("q", &format!("id:{name}"));
+        if let Some(path) = path_filter {
+            url.query_pairs_mut().append_pair("path", path);
+        }
+        let response = self.get(url).await?.error_for_status()?;
+        let json: SearchfoxResponse = serde_json::from_str(&response.text().await?)?;
+        let mut suggestions = Vec::new();
+        for (key, value) in &json {
+            if key.starts_with('*') {
+                continue;
+            }
+            let Some(categories) = value.as_object() else {
+                continue;
+            };
+            for category in categories.keys() {
+                let Some(candidate) = category
+                    .strip_prefix("Definitions (")
+                    .and_then(|s| s.strip_suffix(')'))
+                else {
+                    continue;
+                };
+                if candidate.rsplit("::").next() != Some(name) {
+                    continue;
+                }
+                if filter_category_locations(&json, "Definitions", candidate, true, options)
+                    .is_some()
+                {
+                    suggestions.push(candidate.to_string());
+                }
+            }
+        }
+        suggestions.sort();
+        suggestions.dedup();
+        Ok(suggestions)
+    }
     pub async fn search(&self, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         let query = options.build_query();
 
@@ -699,6 +754,33 @@ mod tests {
     use serde_json::json;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn suggestions_use_unqualified_name_and_only_definition_categories() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/mozilla-central/search"))
+            .and(query_param("q", "id:Control"))
+            .and(query_param("path", "gfx"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "normal": {
+                    "Definitions (mozilla::GfxInfoBase::Control)": [{"path":"gfx/GfxInfo.cpp", "lines":[{"lno": 1, "line":"void Control() {}"}]}],
+                    "Uses (Other::Control)": [{"path":"gfx/Other.cpp", "lines":[{"lno": 2, "line":"Control();"}]}],
+                    "Definitions (Other::ControlExtra)": [{"path":"gfx/Other.cpp", "lines":[{"lno": 3, "line":"void ControlExtra() {}"}]}]
+                }
+            })))
+            .mount(&server).await;
+        let client = SearchfoxClient::new_for_test("mozilla-central".into(), server.uri()).unwrap();
+        let suggestions = client
+            .suggest_definitions(
+                "gfxPlatform::Control",
+                Some("gfx"),
+                &SearchOptions::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(suggestions, vec!["mozilla::GfxInfoBase::Control"]);
+    }
 
     /// Serves `lines` as the source of `file_path`, starting at `first_line`.
     async fn mount_source(server: &MockServer, file_path: &str, first_line: usize, lines: &[&str]) {

@@ -429,6 +429,10 @@ async fn main() -> Result<()> {
                 .find_symbol_locations(symbol, args.path.as_deref(), &search_options)
                 .await?;
 
+            if file_locations.is_empty() {
+                suggest_definition(&client, symbol, args.path.as_deref(), &search_options).await;
+            }
+
             let is_ctor = symbol.rfind("::").is_some_and(|pos| {
                 let class_part = &symbol[..pos];
                 let method_part = &symbol[pos + 2..];
@@ -461,6 +465,9 @@ async fn main() -> Result<()> {
             let result = client
                 .find_and_display_definition(symbol, args.path.as_deref(), &search_options)
                 .await?;
+            if result.is_empty() {
+                suggest_definition(&client, symbol, args.path.as_deref(), &search_options).await;
+            }
             if !result.is_empty() {
                 if args.blame {
                     let file_locations = client
@@ -763,6 +770,32 @@ async fn main() -> Result<()> {
 
     version_checker.print_warning();
     Ok(())
+}
+
+async fn suggest_definition(
+    client: &SearchfoxClient,
+    symbol: &str,
+    path: Option<&str>,
+    options: &SearchOptions,
+) {
+    if let Ok(suggestions) = client.suggest_definitions(symbol, path, options).await {
+        if !suggestions.is_empty() {
+            eprintln!("Indexed definitions with the same method name:");
+            for candidate in suggestions.iter().take(10) {
+                eprintln!("  {candidate}");
+            }
+        }
+    }
+    if symbol.contains("::") || symbol.contains('.') {
+        let name = symbol
+            .rsplit("::")
+            .next()
+            .unwrap_or(symbol)
+            .rsplit('.')
+            .next()
+            .unwrap_or(symbol);
+        eprintln!("Try --define '{name}' or a text search for '{name}'.");
+    }
 }
 
 fn generate_link(

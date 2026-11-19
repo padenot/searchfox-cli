@@ -39,6 +39,10 @@ searchfox-cli -q 'text:function main()' --context 3
 Searchfox output, or an unmangled C function name; use `--id` for plain C++ names.
 `--context` adds surrounding lines to `text:` and `re:` queries.
 
+If `--define` finds no result for a qualified name, try the unqualified method
+name or a text search. Results may include declarations or other methods with
+the same name, so check the surrounding code before using them.
+
 The default repository is `mozilla-central`. Use `-R` for another repository
 served by Searchfox, such as `mozilla-beta`, `mozilla-release`, or `comm-central`.
 Set `SEARCHFOX_BASE_URL` to use another server:
@@ -69,6 +73,9 @@ searchfox-cli --spec-refs 'https://html.spec.whatwg.org/#navigate'
 | `--log-requests` | Show HTTP timing and response sizes |
 
 Run `searchfox-cli --help` for the full option list.
+
+Set `MOZTOOLS_UPDATE_CHECK=0` to disable update checks and their notices, for
+example when running the CLI repeatedly in automation.
 
 ## File cache
 
