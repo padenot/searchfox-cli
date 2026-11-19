@@ -58,8 +58,10 @@ git push origin "v${release_version}"
 
 The final tag push starts publication. There is no local `cargo publish` step.
 
-`just release VERSION` is an optional shortcut for version edits, a local build,
-commit, and tag push. It is not required to publish.
+`just release VERSION` is an optional shortcut for version edits, local checks,
+commit, and tag push. It requires a clean, up-to-date `main`, runs the local
+checks, and waits for CI on the release commit before pushing the tag. It
+requires the GitHub CLI (`gh`). It is not required to publish.
 
 ## Check the result
 
