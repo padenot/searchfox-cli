@@ -289,6 +289,9 @@ struct Args {
 
 fn is_llm_environment() -> bool {
     std::env::var("CLAUDECODE").is_ok()
+        // Codex supplies thread/session markers even without a sandbox.
+        || std::env::var("CODEX_THREAD_ID").is_ok()
+        || std::env::var("CODEX_SESSION_ID").is_ok()
         || std::env::var("CODEX_SANDBOX").is_ok()
         || std::env::var("GEMINI_CLI").is_ok()
         || std::env::var("OPENCODE").is_ok()
