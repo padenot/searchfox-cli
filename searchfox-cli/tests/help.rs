@@ -9,6 +9,8 @@ fn help(flag: &str, marker: Option<&str>) -> String {
         "CODEX_SANDBOX",
         "GEMINI_CLI",
         "OPENCODE",
+        "CLICOLOR_FORCE",
+        "FORCE_COLOR",
     ] {
         command.env_remove(name);
     }
